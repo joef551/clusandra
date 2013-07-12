@@ -315,6 +315,10 @@ public class KmeansClusterer implements Processor {
 		return (1.0d / (1.0d - getLambda()));
 	}
 
+	private double getDensityRange() {
+		return getMaximumDensity() - 1.0d;
+	}
+
 	private void setCurrentDensity(double density) {
 		this.currentDensity = density;
 	}
@@ -420,7 +424,7 @@ public class KmeansClusterer implements Processor {
 				}
 				// if this new record is temporally relevant with the group,
 				// save the density as the current density
-				if ((density / getMaximumDensity()) >= getSparseFactor()) {
+				if (( (density-1.0d) / getDensityRange()) >= getSparseFactor()) {
 					setCurrentDensity(density);
 				} else {
 					// the new record is not temporally relevant with the
@@ -542,7 +546,7 @@ public class KmeansClusterer implements Processor {
 		LOG.debug("clusterDataRecords: number of clusters after merge = "
 				+ clusters.length);
 
-		// now transform the kmeans clusters into a micro-cluster and 
+		// now transform the kmeans clusters into a micro-cluster and
 		// send it off to the queue
 		for (KmeansKernel cluster : clusters) {
 			cluster.initMicro();
@@ -550,7 +554,7 @@ public class KmeansClusterer implements Processor {
 		}
 		// send out any stragglers
 		getQueueAgent().flush();
-		
+
 		LOG.debug("clusterDataRecords: exit");
 
 	}
@@ -559,8 +563,6 @@ public class KmeansClusterer implements Processor {
 			throws Exception {
 		throw new UnsupportedOperationException();
 	}
-	
-	
 
 	/**
 	 * Return the working set of microclusters for this clusterer
