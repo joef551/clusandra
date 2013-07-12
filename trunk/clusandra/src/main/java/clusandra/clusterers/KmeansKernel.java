@@ -164,9 +164,9 @@ public class KmeansKernel extends ClusandraKernel {
 		// first sort the list of data records in ascending timestamp order
 		Collections.sort(points);
 		// have the creation time of the cluster be the timestamp of the
-		// oldest point in the group being clustered togather
+		// oldest point in the group being clustered together
 		setCT(points.get(0).getTimestamp());
-		// now aborb all the points
+		// now absorb all the points
 		for (DataRecord point : points) {
 			absorb(point);
 		}
