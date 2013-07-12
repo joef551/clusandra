@@ -26,30 +26,30 @@ package clusandra.utils;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.ListIterator;
+import java.util.concurrent.locks.ReentrantLock;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import clusandra.clusterers.BTreeClusterer;
 import clusandra.clusterers.ClusandraKernel;
+import static clusandra.utils.DateUtils.getClusandraDate;
 
 /**
- * Implementation of a BTree for objects that represent micro-clusters or
- * cluster features (CFs), thus also referred to as a CFTree. The tree and its
- * nodes evolve as micro-clusters are inserted into the tree. For example, a
- * micro-cluster that is being inserted may be absorbed by its closest
- * micro-cluster in the tree. Each non-leaf node in the tree represents a
- * cluster (subtree) and each leaf node is an actual micro-cluster.
- * Micro-clusters absorb other micro-clusters and are removed from the tree when
- * they become sparse.
+ * Implementation of a BTree for objects that represent microclusters or cluster
+ * features (CFs), thus also referred to as a CFTree. The tree and its nodes
+ * evolve as microclusters are inserted into the tree. For example, a
+ * microcluster that is being inserted may be absorbed by its closest
+ * microcluster in the tree. Each non-leaf node in the tree represents a cluster
+ * (subtree) and each leaf node is an actual microcluster. microclusters absorb
+ * other microclusters and are removed from the tree when they become sparse.
  * 
  * Absorption is controlled by the overlap factor. For example, if the factor is
- * set to 1.0, then a micro-cluster, which is being inserted, will be absorbed
- * by its nearest micro-cluster iff the two micro-cluster's radii overlap. If
- * the factor is set to 0.5, then they'll overlap iff 0.5 of their radii
- * overlap. So in the latter case, the micro-clusters must be closer to one
- * another than in the former case.
+ * set to 1.0, then a microcluster, which is being inserted, will be absorbed by
+ * its nearest microcluster iff the two microcluster's radii overlap. If the
+ * factor is set to 0.5, then they'll overlap iff 0.5 of their radii overlap. So
+ * in the latter case, the microclusters must be closer to one another than in
+ * the former case.
  * 
- * Any time a micro-cluster is updated, it will be written out to the DB. It is
+ * Any time a microcluster is updated, it will be written out to the DB. It is
  * removed from the tree when it becomes sparse. Sparseness or its temporal
  * density is controlled by a temporal decay factor (lambda).
  * 
@@ -59,7 +59,7 @@ import clusandra.clusterers.ClusandraKernel;
  * Data. KDD '07
  * 
  * The above paper describes an approach for managing the temporal density of
- * micro-clusters without having to visit a micro-cluster each and every time
+ * microclusters without having to visit a microcluster each and every time
  * period; as described in:
  * 
  * Citation: Feng Cao, Martin Ester, Weining Qian, Aoying Zhou: Density-Based
@@ -71,7 +71,7 @@ import clusandra.clusterers.ClusandraKernel;
  * @param <ClusandraKernel>
  *            the type of entry to store in this BTree.
  */
-public class BTree {
+public class BTree implements Runnable {
 
 	private static final Log LOG = LogFactory.getLog(BTree.class);
 
@@ -80,18 +80,18 @@ public class BTree {
 	// the maximum number of entries (children) that can occupy a tree node.
 	private int maxEntries = MAX_ENTRIES;
 	private int numDims = 2;
-	// The overlap factor controls the merging of micro-clusters. If the factor
-	// is set to 1.0, then the two micro-clusters will merge iff their radii
+	// The overlap factor controls the merging of microclusters. If the factor
+	// is set to 1.0, then the two microclusters will merge iff their radii
 	// overlap. If the factor is set to 0.5, then the two will merge iff
 	// one-half their radii overlap. So in the latter case, the micr-clusters
 	// must be much closer to one another.
 	private double overlapFactor = 1.0d;
 	// Lambda is the forgetfulness factor. It dictates how quickly a cluster
 	// becomes temporally irrelevant. The lower the value for lambda, the quick
-	// a micro-cluster will become irrelevant.
+	// a microcluster will become irrelevant.
 	private double lambda = 0.5d;
 	// the density, as a factor of maximum density, that a cluster is considered
-	// irrelevant. So if the factor is set to 0.25, then the micro-cluster will
+	// irrelevant. So if the factor is set to 0.25, then the microcluster will
 	// become temporally irrelevant if its density falls below 25% of its
 	// maximum density.
 	private double sparseFactor = 0.25d;
@@ -100,10 +100,20 @@ public class BTree {
 	// used as index to all leaf nodes.
 	private LinkedList<Node> leaves = new LinkedList<Node>();
 
+	private final ReentrantLock myLock = new ReentrantLock();
+
+	private long lastInsert = 0L;
+
 	// three vars used for reporting purposes
 	private int numNodes = 0;
 	private int numLeaves = 0;
 	private int numClusters = 0;
+
+	/**
+	 * TODO: Need to give BTree a CassandraDao so that it can persist
+	 * microclusters out to Cassandra. Perhaps instead of CassandraDao we should
+	 * be using a more generic Dao?
+	 */
 
 	/**
 	 * Creates a new CFTree.
@@ -175,7 +185,7 @@ public class BTree {
 	}
 
 	/**
-	 * Set the micro-cluster overlap factor.
+	 * Set the microcluster overlap factor.
 	 * 
 	 * @param o
 	 */
@@ -185,16 +195,29 @@ public class BTree {
 
 	/**
 	 * 
-	 * @return the micro-cluster overlap factor.
+	 * @return the microcluster overlap factor.
 	 */
 	public double getOverlapFactor() {
 		return overlapFactor;
 	}
 
 	/**
-	 * Set the factor that determines if a micro-cluster is sparse or not; it is
+	 * Set the number of dimensions for this tree.
+	 * 
+	 * @param numDims
+	 */
+	public void setNumDims(int numDims) {
+		this.numDims = numDims;
+	}
+
+	public int getNumDims() {
+		return this.numDims;
+	}
+
+	/**
+	 * Set the factor that determines if a microcluster is sparse or not; it is
 	 * a percentage of its maximum density. For example, suppose the factor is
-	 * set to 0.3, then if the micro-cluster's density falls below 30% of its
+	 * set to 0.3, then if the microcluster's density falls below 30% of its
 	 * maximum density, it is considered sparse.
 	 * 
 	 * @param sf
@@ -247,35 +270,15 @@ public class BTree {
 	 * Empties the CFTree
 	 */
 	public void clear() {
-		root = buildRoot(true);
-		leaves.clear();
-		// let the GC take care of the rest.
-	}
-
-	/**
-	 * Cleans the tree of micro-clusters that have become temporally irrelevant.
-	 */
-	public void clean() {
-		// the children of a leaf are of type Entry!
-		// iterate through all the leaves and check their children. note
-		// the use of a 'ListIterator' that allows us to remove on the fly
-		for (ListIterator<Node> li = leaves.listIterator(); li.hasNext();) {
-			Node leaf = li.next();
-			for (Node node : leaf.children) {
-				Entry entry = (Entry) node;
-				// if the entry (cluster) is no longer relevant,
-				// then remove it from its leaf parent
-				if (!entry.isRelevant()) {
-					entry.remove();
-				}
-			}
-			// if the leaf is now empty (i.e., has no children) then condense
-			// the tree and remove it from the leaves index
-			if (leaf.isEmpty()) {
-				condenseTree(leaf);
-				li.remove();
-			}
+		try {
+			lock();
+			root = buildRoot(true);
+			size = 0;
+			leaves.clear();
+		} finally {
+			unlock();
 		}
+		// let the GC take care of the rest.
 	}
 
 	/**
@@ -285,7 +288,9 @@ public class BTree {
 	 */
 	public void insert(ClusandraKernel cluster) {
 
-		LOG.debug("insert: entered");
+		LOG.debug("insert: entered with tree size = " + size);
+
+		lastInsert = System.currentTimeMillis();
 
 		// first, find the closest leaf to this cluster; start from the root
 		// node. The chooseLeaf method will update the center and N value of
@@ -311,13 +316,14 @@ public class BTree {
 
 			// Do the two clusters spatially overlap?
 			if (cluster.spatialOverlap(entry.cluster, getOverlapFactor())) {
+				LOG.debug("insert: two microclusters overlap");
 				// Do they also temporally overlap or is the entry's cluster
 				// temporally relevant with respect to the given cluster?
 				if (cluster.temporalOverlap(entry.cluster)
-						|| !entry.isRelevant(cluster.getCT())) {
+						|| !entry.isRelevant(cluster.getLST() / cluster.getN())) {
 					// merge the two
 					entry.absorb(cluster);
-					LOG.debug("insert: two micro clusters overlap");
+					LOG.debug("insert: two microclusters overlap & are temporally relevant");
 					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
 					// CASSANDRA
 					return;
@@ -325,8 +331,8 @@ public class BTree {
 			}
 
 			// there is no spatial or temporal overlap. is the closest entry
-			// relevant with respect to the current time?
-			if (!entry.isRelevant()) {
+			// relevant with respect to this latest cluster?
+			if (!entry.isRelevant(cluster.getLST() / cluster.getN())) {
 				LOG.debug("insert: replacing irrelevant micro cluster");
 				// remove the entry from the tree and replace it with the new
 				// entry. Note that the entry being removed has already been
@@ -381,7 +387,60 @@ public class BTree {
 				+ "trees size = " + size + "\n");
 	}
 
+	/**
+	 * Background thread that performs housekeeping chores TODO: prior to
+	 * cleaning check how long it has been since last tree update
+	 */
+	public void run() {
+		
+		while (true) {
+			try {
+				Thread.sleep(2000);
+			} catch (InterruptedException ignore) {
+			}
+
+			// if lastInsert > 0 and currentTime - lastInsert > 5000
+			if (size > 0 && lastInsert > 0
+					&& System.currentTimeMillis() - lastInsert > 5000) {
+				if (!isLocked()) {
+					try {
+						lock();
+						LOG.debug("tree housecleaning");
+						clean(root);
+						lastInsert = 0L;
+					} finally {
+						unlock();
+					}
+				}
+			}
+		}
+	}
+
+	/*
+	 * This series of methods are used to control access to this BTree
+	 */
+	public void lock() {
+		myLock.lock();
+	}
+
+	public void unlock() {
+		myLock.unlock();
+	}
+
+	public boolean isLocked() {
+		return myLock.isLocked();
+	}
+
+	public boolean tryLock() {
+		return myLock.tryLock();
+	}
+
+	public boolean isWaiting() {
+		return myLock.hasQueuedThreads();
+	}
+
 	private void printStats(Node n) {
+		// only leaves contain clusters
 		if (n.leaf) {
 			++numLeaves;
 			numClusters += n.size();
@@ -389,6 +448,29 @@ public class BTree {
 			++numNodes;
 			for (Node node : n.children) {
 				printStats(node);
+			}
+		}
+	}
+
+	/**
+	 * TODO: check is others wating for lock
+	 * 
+	 * @param node
+	 */
+	private void clean(Node node) {
+		// only leaves contain clusters
+		if (node.isLeaf()) {
+			for (ListIterator<Node> li = node.getChildren().listIterator(); li
+					.hasNext();) {
+				Entry entry = (Entry) li.next();
+				if (!entry.isRelevant()) {
+					entry.remove();
+				}
+			}
+		} else {
+			for (ListIterator<Node> li = node.getChildren().listIterator(); li
+					.hasNext();) {
+				clean(li.next());
 			}
 		}
 	}
@@ -459,7 +541,7 @@ public class BTree {
 	 *         the two resulting ndoes.
 	 */
 	private Node[] splitNode(Node n) {
-		
+
 		LOG.debug("splitNode: entered");
 
 		// create an array of two nodes, with the first element being
@@ -489,7 +571,7 @@ public class BTree {
 				nn[1].addChild(node);
 			}
 		}
-		
+
 		LOG.debug("splitNode: nn[0] size = " + nn[0].size());
 		LOG.debug("splitNode: nn[1] size = " + nn[1].size());
 		return nn;
@@ -510,6 +592,14 @@ public class BTree {
 			if (leaf) {
 				leaves.add(this);
 			}
+		}
+
+		boolean isLeaf() {
+			return leaf;
+		}
+
+		LinkedList<Node> getChildren() {
+			return children;
 		}
 
 		void addChild(Node child) {
@@ -586,7 +676,13 @@ public class BTree {
 		}
 
 		boolean isRelevant(double time) {
-			return (getDensity(time) / getMaximumDensity()) >= getSparseFactor();
+			LOG.debug("isRelevant: entered with this time = "
+					+ getClusandraDate((long) time));
+			double td = getDensity(time);
+			LOG.debug("isRelevant: calculated density  = " + td);
+			double ratio = (td - 1.0d) / (getMaximumDensity() - 1.0d);
+			LOG.debug("isRelevant: ratio  = " + ratio);
+			return ratio >= getSparseFactor();
 		}
 
 		boolean isRelevant() {
@@ -594,8 +690,8 @@ public class BTree {
 		}
 
 		/**
-		 * Based on the given time (ms since epoc), return the temporal density
-		 * of the given cluster.
+		 * Based on the cluster average timestamp (ms since epoc), return the
+		 * temporal density of this cluster relative to the given time.
 		 * 
 		 * @param entry
 		 * @param time
@@ -610,9 +706,16 @@ public class BTree {
 			}
 			// transform the times from milliseconds to seconds
 			time = time / 1000;
-			double lat = this.cluster.getLAT() / 1000;
+			double avgT = (cluster.getLST() / cluster.getN()) / 1000;
 
-			return ((Math.pow(getLambda(), Math.round(time - lat)) * this.density) + 1.0d);
+			LOG.debug("getDensity: delta = " + (time - avgT));
+
+			double d1 = (Math.pow(getLambda(), Math.round(time - avgT)) * this.density) + 1.0d;
+
+			LOG.debug("getDensity: d1 = " + d1);
+
+			return (d1 > getMaximumDensity()) ? getMaximumDensity() : d1;
+
 		}
 
 	}
