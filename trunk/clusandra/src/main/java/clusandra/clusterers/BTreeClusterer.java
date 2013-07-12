@@ -42,6 +42,10 @@ import static clusandra.utils.BTree.MAX_ENTRIES;
  * inserts the micro-clusters into a BTree from where they are persisted to the
  * Cassandra DB.
  * 
+ * Micro-clusters that are to be inserted into the tree can be absorbed by
+ * existing micro-clusters. Also, micro-clusters being inserted can replace
+ * existing micro-clusters that are no longer temporally relevant.
+ * 
  * @author jfernandez
  * 
  */
@@ -57,24 +61,25 @@ public class BTreeClusterer implements Processor {
 	// this clusterer's CassandraDao
 	private ClusandraDao clusandraDao = null;
 
-	// The overlap factor controls the merging of clusters. If the factor
+	// The overlap factor controls the merging of microclusters. If the factor
 	// is set to 1.0, then the two clusters will merge iff their radii
 	// overlap. If the factor is set to 0.5, then the two will merge iff
 	// one-half their radii overlap. So in the latter case, the clusters
-	// must be much closer to one another.
+	// must be much closer to one another for the merging to take place.
+	// Note that merging and absorbing are the same.
 	private double overlapFactor = OVERLAP_FACTOR;
 
-	// Lambda is the forgetfulness factor. It dictates how quickly a set of
-	// DataRecords becomes temporally irrelevant. The lower the value for
-	// lambda, the quicker the set becomes irrelevant. When a set becomes
-	// temporally irrelevant it is clustered and the resulting micro-clusters
-	// are sent on to the CTreeClusterer.
+	// Lambda is the forgetfulness factor. It dictates how quickly a
+	// microcluster becomes "temporally" irrelevant. The lower the value for
+	// lambda, the quicker the microcluster becomes irrelevant. When a
+	// microcluster becomes irrelevant it becomes a candidate for replacement or
+	// removal from the tree.
 	private double lambda = 0.5d;
 
-	// the density, as a factor of maximum density, that a set of DataRecords is
-	// considered irrelevant. So if the factor is set to 0.25, then the set
-	// becomes temporally irrelevant if its density falls below 25% of its
-	// maximum density.
+	// the density, as a factor of maximum density, that a microcluster is
+	// considered irrelevant. So if the factor is set to 0.25, then the
+	// microcluster becomes temporally irrelevant if its density falls below 25%
+	// of its maximum density.
 	private double sparseFactor = 0.25d;
 
 	// the maximum number of entries (children) that can occupy a tree node.
@@ -93,12 +98,12 @@ public class BTreeClusterer implements Processor {
 	private static final String lambdaKey = "lambda";
 	private static final String maxEntriesKey = "maxEntries";
 
-	// this clusterers queue agent. this clusterer will only read
-	// messages from a queue.
+	// this clusterers QueueAgent. this clusterer will only read
+	// messages from a queue. the QueueAgent does the reading and
+	// calls this clusterer's processCluMessages method.
 	private QueueAgent queueAgent;
 
 	public BTreeClusterer() {
-		super();
 	}
 
 	public BTreeClusterer(BTree bTree) {
@@ -286,7 +291,7 @@ public class BTreeClusterer implements Processor {
 	}
 
 	/**
-	 * Get this clusterer's ClusandraDao. Not used by this processor.
+	 * Get this clusterer's ClusandraDao.
 	 * 
 	 * @return
 	 */
@@ -307,6 +312,13 @@ public class BTreeClusterer implements Processor {
 		} else if (getQueueAgent().getJmsReadTemplate() == null) {
 			throw new Exception(
 					"this clusterer has not been wired to a JmsReadTemplate");
+		} else if (getClusandraDao() == null) {
+			/*
+			 * Disable this for now
+			 * 
+			 * throw new Exception(
+			 * "this clusterer has not been wired to a ClusandraDao");
+			 */
 		}
 		return true;
 	}
@@ -323,6 +335,7 @@ public class BTreeClusterer implements Processor {
 
 		LOG.debug("processCluMessages: entered");
 
+		// begin by doing some validation
 		if (cluMessages == null || cluMessages.isEmpty()) {
 			LOG.warn("processCluMessages: entered with no messages");
 			return;
@@ -333,26 +346,34 @@ public class BTreeClusterer implements Processor {
 			throw new Exception(
 					"processCluMessages: object is not of type ClusandraKernel");
 		}
+
+		// peek at the clusters
 		ClusandraKernel cluster = (ClusandraKernel) cluMessages.get(0)
 				.getBody();
-		if (getBTree() != null
-				&& cluster.getCenter().length != getBTree().getMaxEntries()) {
-			LOG.error("processCluMessages: cluster dimension does not match tree's given dimension");
-			throw new Exception(
-					"processCluMessages: cluster dimension does not match tree's given dimension");
-		}
 
-		if (getBTree() == null) {
-			BTree tree = new BTree(this.getMaxEntries(),cluster.getCenter().length);
+		if (getBTree() != null) {
+			if (cluster.getCenter().length != getBTree().getNumDims()) {
+				LOG.error("processCluMessages: cluster dimension does not match tree's given dimension");
+				throw new Exception(
+						"processCluMessages: cluster dimension does not match tree's given dimension");
+			}
+		} else {
+			BTree tree = new BTree(this.getMaxEntries(),
+					cluster.getCenter().length);
 			tree.setLambda(getLambda());
 			tree.setOverlapFactor(getOverlapFactor());
 			setBTree(tree);
 		}
 
-		// insert the clusters into the BTree
-		for (CluMessage cluMessage : cluMessages) {
-			cluster = (ClusandraKernel) cluMessage.getBody();
-			getBTree().insert(cluster);
+		// insert the clusters into the BTree, but first lock the tree
+		try {
+			getBTree().lock();
+			for (CluMessage cluMessage : cluMessages) {
+				cluster = (ClusandraKernel) cluMessage.getBody();
+				getBTree().insert(cluster);
+			}
+		} finally {
+			getBTree().unlock();
 		}
 
 		LOG.debug(getBTree().printStats());
