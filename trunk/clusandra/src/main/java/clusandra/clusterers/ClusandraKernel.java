@@ -863,7 +863,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @return true if the two clusters temporally overlap
 	 */
 	public boolean temporalOverlap(ClusandraKernel target) {
-		if ((getCT() >= target.getCT() && getCT() <= target.getCT())
+		if ((getCT() >= target.getCT() && getCT() <= target.getLAT())
 				|| (getLAT() >= target.getCT() && getLAT() <= target.getLAT())) {
 			return true;
 		}
