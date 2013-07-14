@@ -100,11 +100,16 @@ public class BTree implements Runnable {
 	// used as index to all leaf nodes.
 	private LinkedList<Node> leaves = new LinkedList<Node>();
 
+	// used for synchronizing access to the tree
 	private final ReentrantLock myLock = new ReentrantLock();
 
-	private long lastInsert = 0L;
+	// records last time of tree insertion
+	private long lastClean = 0L;
 
-	// three vars used for reporting purposes
+	// the back ground thread that periodically cleans the treee
+	private Thread runner;
+
+	// three vars used for diagnostics/reporting purposes
 	private int numNodes = 0;
 	private int numLeaves = 0;
 	private int numClusters = 0;
@@ -124,6 +129,7 @@ public class BTree implements Runnable {
 	 *            the number of dimensions of the CFTree.
 	 */
 	public BTree(int maxEntries, int numDims) {
+		this();
 		this.maxEntries = maxEntries;
 		this.numDims = numDims;
 		root = buildRoot(true);
@@ -134,6 +140,9 @@ public class BTree implements Runnable {
 	 * not call buildRoot
 	 */
 	public BTree() {
+		// runner = new Thread(this, "BTree thread: ");
+		// runner.setDaemon(true);
+		// runner.start();
 	}
 
 	/**
@@ -290,12 +299,12 @@ public class BTree implements Runnable {
 
 		LOG.debug("insert: entered with tree size = " + size);
 
-		lastInsert = System.currentTimeMillis();
-
 		// first, find the closest leaf to this cluster; start from the root
 		// node. The chooseLeaf method will update the center and N value of
 		// the 'non-leaf' nodes.
 		Node leaf = chooseLeaf(root, cluster);
+
+		Entry entry = null;
 
 		// now we need to determine which child (if any) of the chosen leaf node
 		// has a cluster that is closest to the given cluster. A child of a leaf
@@ -304,9 +313,9 @@ public class BTree implements Runnable {
 
 			LOG.debug("insert: leaf node has this many entries " + leaf.size());
 
+			// first find the closest entry (cluster)
 			double minDist = Double.MAX_VALUE;
-			Entry entry = null;
-			for (Node child : leaf.children) {
+			for (Node child : leaf.getChildren()) {
 				double dist = cluster.getDistance(child.center);
 				if (dist < minDist) {
 					entry = (Entry) child;
@@ -316,32 +325,29 @@ public class BTree implements Runnable {
 
 			// Do the two clusters spatially overlap?
 			if (cluster.spatialOverlap(entry.cluster, getOverlapFactor())) {
-				LOG.debug("insert: two microclusters overlap");
-				// Do they also temporally overlap or is the entry's cluster
-				// temporally relevant with respect to the given cluster?
-				if (cluster.temporalOverlap(entry.cluster)
-						|| !entry.isRelevant(cluster.getLST() / cluster.getN())) {
-					// merge the two
+				LOG.debug("insert: two microclusters spatially overlap");
+				// If they are temporally relevant, then merge the two
+				if (entry.isRelevant(cluster.getLST() / cluster.getN())) {
 					entry.absorb(cluster);
-					LOG.debug("insert: two microclusters overlap & are temporally relevant");
+					LOG.debug("insert: two microclusters temporally relevant");
 					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
 					// CASSANDRA
 					return;
 				}
 			}
 
-			// there is no spatial or temporal overlap. is the closest entry
-			// relevant with respect to this latest cluster?
-			if (!entry.isRelevant(cluster.getLST() / cluster.getN())) {
-				LOG.debug("insert: replacing irrelevant micro cluster");
-				// remove the entry from the tree and replace it with the new
-				// entry. Note that the entry being removed has already been
-				// persisted to the DB.
-				entry.remove();
-				entry.parent.addChild(new Entry(cluster));
-				// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
-				// CASSANDRA
-				return;
+			// determine if there is any entry in the leaf that is no
+			// longer relevant wrt to this new cluster. if so, replace the
+			// irrelevant entry with this new one
+			for (Node child : leaf.getChildren()) {
+				entry = (Entry) child;
+				if (!entry.isRelevant(cluster.getLST() / cluster.getN())) {
+					entry.remove();
+					entry.parent.addChild(new Entry(cluster));
+					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+					// CASSANDRA
+					return;
+				}
 			}
 
 		} else {
@@ -350,10 +356,10 @@ public class BTree implements Runnable {
 
 		// cluster was not absorbed, so write it out to the DB and
 		// add it as a new leaf entry.
-		Entry e = new Entry(cluster);
-		leaf.addChild(e);
+		entry = new Entry(cluster);
+		leaf.addChild(entry);
 		size++;
-		e.parent = leaf;
+		entry.parent = leaf;
 		LOG.debug("insert: adding micro cluster, tree size = " + size);
 		LOG.debug("insert: leaf size  = " + leaf.size());
 		// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
@@ -392,22 +398,30 @@ public class BTree implements Runnable {
 	 * cleaning check how long it has been since last tree update
 	 */
 	public void run() {
-		
+
+		LOG.trace(runner.getName() + ": btree clean thread has started");
+
 		while (true) {
 			try {
-				Thread.sleep(2000);
+				Thread.sleep(1000);
 			} catch (InterruptedException ignore) {
 			}
 
-			// if lastInsert > 0 and currentTime - lastInsert > 5000
-			if (size > 0 && lastInsert > 0
-					&& System.currentTimeMillis() - lastInsert > 5000) {
+			if (size == 0) {
+				LOG.trace("btree clean thread: tree is empty");
+				continue;
+			}
+
+			// perform house cleaning if it has been 5 seconds or more since
+			// last clean job
+			if (System.currentTimeMillis() - lastClean >= 5000) {
+				// don't wait on the lock
 				if (!isLocked()) {
 					try {
 						lock();
-						LOG.debug("tree housecleaning");
+						LOG.debug(runner.getName() + ": tree housecleaning");
 						clean(root);
-						lastInsert = 0L;
+						lastClean = System.currentTimeMillis();
 					} finally {
 						unlock();
 					}
@@ -453,20 +467,28 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * TODO: check is others wating for lock
+	 * Looks for tree entries that are no longer temporally relevant
 	 * 
 	 * @param node
 	 */
 	private void clean(Node node) {
 		// only leaves contain clusters
 		if (node.isLeaf()) {
-			for (ListIterator<Node> li = node.getChildren().listIterator(); li
-					.hasNext();) {
-				Entry entry = (Entry) li.next();
-				if (!entry.isRelevant()) {
-					entry.remove();
+			boolean removed;
+			do {
+				removed = false;
+				for (Node e : node.getChildren()) {
+					Entry entry = (Entry) e;
+					if (!entry.isRelevant()) {
+						entry.remove();
+						if (node.isEmpty()) {
+							condenseTree(node);
+						}
+						removed = true;
+						break;
+					}
 				}
-			}
+			} while (removed);
 		} else {
 			for (ListIterator<Node> li = node.getChildren().listIterator(); li
 					.hasNext();) {
@@ -642,6 +664,12 @@ public class BTree implements Runnable {
 		}
 	}
 
+	/**
+	 * An entry is only found in leaf nodes and contains a microcluster
+	 * 
+	 * @author jfernandez
+	 * 
+	 */
 	private class Entry extends Node {
 		ClusandraKernel cluster;
 		// must start off with a max density
@@ -667,7 +695,7 @@ public class BTree implements Runnable {
 		// remove this Entry from the tree. Entries are found only in leaf
 		// nodes!
 		void remove() {
-			parent.children.remove(this);
+			parent.getChildren().remove(this);
 			Node nextParent = parent;
 			while (nextParent != root) {
 				nextParent.subCenter(this.N, this.center);
@@ -676,12 +704,12 @@ public class BTree implements Runnable {
 		}
 
 		boolean isRelevant(double time) {
-			LOG.debug("isRelevant: entered with this time = "
+			LOG.trace("isRelevant: entered with this time = "
 					+ getClusandraDate((long) time));
 			double td = getDensity(time);
-			LOG.debug("isRelevant: calculated density  = " + td);
+			LOG.trace("isRelevant: calculated density  = " + td);
 			double ratio = (td - 1.0d) / (getMaximumDensity() - 1.0d);
-			LOG.debug("isRelevant: ratio  = " + ratio);
+			LOG.trace("isRelevant: ratio  = " + ratio);
 			return ratio >= getSparseFactor();
 		}
 
@@ -708,11 +736,11 @@ public class BTree implements Runnable {
 			time = time / 1000;
 			double avgT = (cluster.getLST() / cluster.getN()) / 1000;
 
-			LOG.debug("getDensity: delta = " + (time - avgT));
+			LOG.trace("getDensity: delta = " + (time - avgT));
 
 			double d1 = (Math.pow(getLambda(), Math.round(time - avgT)) * this.density) + 1.0d;
 
-			LOG.debug("getDensity: d1 = " + d1);
+			LOG.trace("getDensity: d1 = " + d1);
 
 			return (d1 > getMaximumDensity()) ? getMaximumDensity() : d1;
 
