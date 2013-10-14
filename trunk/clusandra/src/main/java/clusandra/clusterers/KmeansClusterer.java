@@ -424,7 +424,7 @@ public class KmeansClusterer implements Processor {
 				}
 				// if this new record is temporally relevant with the group,
 				// save the density as the current density
-				if (( (density-1.0d) / getDensityRange()) >= getSparseFactor()) {
+				if (((density - 1.0d) / getDensityRange()) >= getSparseFactor()) {
 					setCurrentDensity(density);
 				} else {
 					// the new record is not temporally relevant with the
@@ -482,12 +482,34 @@ public class KmeansClusterer implements Processor {
 		long startTime = System.currentTimeMillis();
 		for (; numIterations < maxIterations; numIterations++) {
 
-			// first assign all points to their nearest cluster centroid
+			// [re]assign the clusters to their nearest neighbor
+			assignClusters(clusters);
+
+			// now assign all points to their nearest cluster centroid
 			for (DataRecord point : dataRecords) {
 
-				// find this points nearest cluster centroid
 				double minDist = Double.MAX_VALUE;
-				KmeansKernel minCluster = null;
+				KmeansKernel minCluster = point.getKmeansKernel();
+
+				// if the point is assigned to a cluster and the
+				// distance from this point to the cluster is less
+				// than 1/2 the distance from that cluster to its
+				// nearest neighbor, then by the triangle inequality,
+				// the point can be ignored; i.e., it can remain
+				// assigned to its present cluster. this usually
+				// works best when the number of clusters is greater
+				// than 20
+				if (minCluster != null) {
+					minDist = ClusandraClusterer.getDistance(
+							point.toDoubleArray(), minCluster.getLocation());
+					if (minDist <= (0.5 * minCluster.getDistNN())) {
+						continue;
+					}
+				}
+
+				// find this points nearest cluster centroid
+				minDist = Double.MAX_VALUE;
+				minCluster = null;
 				for (KmeansKernel cluster : clusters) {
 					double distance = ClusandraClusterer.getDistance(
 							cluster.getLocation(), point.toDoubleArray());
@@ -503,7 +525,6 @@ public class KmeansClusterer implements Processor {
 				}
 				// assign point to its new cluster
 				minCluster.addPoint(point);
-				// point.setDistanceToCluster(minDist);
 			}
 
 			boolean converged = true;
@@ -793,6 +814,31 @@ public class KmeansClusterer implements Processor {
 			sum += (dist * dist);
 		}
 		return sum / N;
+	}
+
+	/**
+	 * Assign each cluster to its nearest neighbor
+	 * 
+	 * @param clusters
+	 */
+	public void assignClusters(KmeansKernel[] clusters) {
+		for (int i = 0; i < clusters.length; i++) {
+			double minDist = Double.MAX_VALUE;
+			KmeansKernel minCluster = null;
+			for (int j = 0; j < clusters.length; j++) {
+				if (i != j) {
+					double distance = ClusandraClusterer.getDistance(
+							clusters[i].getLocation(),
+							clusters[j].getLocation());
+					if (distance < minDist) {
+						minCluster = clusters[j];
+						minDist = distance;
+					}
+				}
+			}
+			clusters[i].setNN(minCluster);
+			clusters[i].setDistNN(minDist);
+		}
 	}
 
 }

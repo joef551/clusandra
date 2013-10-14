@@ -20,6 +20,11 @@ public class KmeansKernel extends ClusandraKernel {
 	private transient double[] meanLocation;
 	protected transient double[] runningTotalForMean;
 
+	// this cluster's nearest neighbor
+	protected transient KmeansKernel NN = null;
+	// the distance to this cluster's nearest neighbor
+	protected transient double distNN = 0;
+
 	// if a point is added or removed from this
 	// cluster, then its mean will have to be
 	// recalculated
@@ -147,7 +152,35 @@ public class KmeansKernel extends ClusandraKernel {
 		return str;
 	}
 
+	/**
+	 * Set this cluster's nearest neighbor
+	 * 
+	 * @param NN
+	 */
+	public void setNN(KmeansKernel NN) {
+		this.NN = NN;
+	}
+
+	public KmeansKernel getNN() {
+		return NN;
+	}
+
+	/**
+	 * Set the distance to this cluster's nearest neighbor
+	 * 
+	 * @param dist
+	 */
+	public void setDistNN(double dist) {
+		distNN = dist;
+	}
+
+	public double getDistNN() {
+		return distNN;
+	}
+
 	public void reset() {
+		NN = null;
+		distNN = 0;
 		currentLocation = null;
 		meanLocation = null;
 		runningTotalForMean = null;

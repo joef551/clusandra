@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
+
+<!-- This Spring XML configuration file is used for test purposes and is 
+		meant for a CluSandra Clusterer. -->
+
+	<!-- The QueueAgent for this clusterer. -->
+	<bean id="queueAgent" class="clusandra.core.QueueAgent">
+		<!-- The JMS Template to be used by this QueueAgent -->
+		<property name="jmsTemplate" ref="jmsTemplate" />
+		<!-- The JMS destination that this QueueAgent is to use for sending or 
+			receiving DataRecords. -->
+		<property name="jmsDestination" value="kddQueue" />
+		<!-- The number of DataRecords that the QueueAgent reads from the JMS queue 
+			before passing the DataRecords to the Clusterer. This property is used only 
+			if the QueueAgent is wired to a Clusterer. -->
+		<property name="readSize" value="1000" />
+		<!-- The QueueAgent must be wired to either a Clusterer or StreamReader, 
+			but must not be wired to both! -->
+		<property name="clusterer" ref="clusandraClusterer" />
+	</bean>
+
+	<!-- The clusterer that is wired to the QueueAgent -->
+	<bean id="clusandraClusterer" class="clusandra.clusterers.ClusandraClusterer">
+		<property name="clusandraDao" ref="clusandraDao" />
+		<!-- A map of configuration key-value pairs for this Clusterer -->
+		<property name="config">
+			<map>
+				<!-- Specify the function to be performed. At present, only "cluster" 
+					and "aggregate" are supported -->
+				<entry key="function" value="aggregate" />
+				<!-- The max cluster radius -->
+				<entry key="maxRadius" value="200.0" />
+				<!-- Set the cluster expire time to 10 seconds -->
+				<entry key="clusterExpireTime" value="10" />
+				<!-- the start and end times are used only for the aggregating function -->
+				<entry key="startTime" value="2011:08:17:01:00:00" />
+				<entry key="endTime" value="2011:08:17:23:00:00" />
+				<entry key="overlapFactor" value="0.6" />
+			</map>
+		</property>
+	</bean>
+
+	<!-- The ClusandraDao DAO that is wired to the Clusterer. The DAO facilitates 
+		writing and reading to and from the Cassandra data store. -->
+	<bean id="clusandraDao" class="clusandra.cassandra.ClusandraDao">
+		<property name="clusterTable" value="clusterTable" />
+		<property name="clusterIndexTable" value="clusterIndexTable" />
+		<!-- This property identifies the Cassandra cluster to be used. -->
+		<property name="cassandraCluster">
+			<bean class="org.scale7.cassandra.pelops.Cluster">
+				<!-- These are the different nodes in the cluster. -->
+				<constructor-arg index="0" type="java.lang.String"
+					value="localhost" />
+				<!-- This is the port number for the cluster. -->
+				<constructor-arg index="1" type="int" value="9160" />
+				<!-- The number of milliseconds thrift should wait to complete an operation 
+					(zero or less disables the timeout) -->
+				<constructor-arg index="2" type="int" value="4000" />
+				<!-- true if nodes should be discovered dynamically -->
+				<constructor-arg index="3" type="boolean" value="false" />
+			</bean>
+		</property>
+		<property name="keySpace" value="clusandra" />
+		<!-- The default consistency level for the DAO. -->
+		<property name="consistency" value="ONE" />
+	</bean>
+
+
+	<!-- The connection factory for the JMS provider, which in this case is 
+		ActiveMQ -->
+	<bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+		<property name="brokerURL" value="tcp://localhost:61616" />
+	</bean>
+
+	<!-- Spring JMS Template -->
+	<bean id="jmsTemplate" class="org.springframework.jms.core.JmsTemplate">
+		<!-- The connection factory that is to be used by this template. -->
+		<property name="connectionFactory" ref="pooledJmsConnectionFactory" />
+		<!-- Set the timeout to use for receive calls (in milliseconds). The default 
+			is RECEIVE_TIMEOUT_INDEFINITE_WAIT, which indicates a blocking receive without 
+			timeout. If the receive timeout expires, the QueueAgent invokes the Clusterer's 
+			processDataRecords() method with whatever DataRecords arrived during that 
+			time. If no DataRecords have arrived, then the QueueAgent simply goes back 
+			and blocks on the queue. -->
+		<property name="receiveTimeout" value="5000" />
+		<!-- The default message acknowledgement mode for the QueueAgent. -->
+		<property name="sessionAcknowledgeModeName" value="CLIENT_ACKNOWLEDGE" />
+	</bean>
+
+	<!-- ActiveMQ's pooled connection factory -->
+	<bean id="pooledJmsConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory"
+		destroy-method="stop">
+		<property name="connectionFactory" ref="jmsConnectionFactory" />
+	</bean>
+
+	<!-- These beans are JMX related and required in order to manage the QueueAgent 
+		via JMX. These beans should not be modified. -->
+	<!-- <bean id="mbeanServer" class="org.springframework.jmx.support.MBeanServerFactoryBean" 
+		/> -->
+	<bean id="exporter" class="org.springframework.jmx.export.MBeanExporter">
+		<property name="assembler" ref="assembler" />
+		<property name="namingStrategy" ref="namingStrategy" />
+	</bean>
+	<!-- will create management interface using annotation meta-data -->
+	<bean id="assembler"
+		class="org.springframework.jmx.export.assembler.MetadataMBeanInfoAssembler">
+		<property name="attributeSource" ref="jmxAttributeSource" />
+	</bean>
+	<bean id="jmxAttributeSource"
+		class="org.springframework.jmx.export.annotation.AnnotationJmxAttributeSource" />
+	<!-- will pick up the ObjectName from the annotation -->
+	<bean id="namingStrategy"
+		class="org.springframework.jmx.export.naming.MetadataNamingStrategy">
+		<property name="attributeSource" ref="jmxAttributeSource" />
+	</bean>
+
+</beans>

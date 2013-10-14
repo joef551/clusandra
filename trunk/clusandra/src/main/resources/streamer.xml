@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
+
+	<!-- This Spring XML configuration file is used for test purposes and is 
+		meant for a StreamReader. This particular StreamReader reads the 1999 KDD 
+		Cup Data Set. Only the data set's continuous numerical attributes will be 
+		utilized. -->
+
+	<!-- The QueueAgent for this StreamReader. -->
+	<bean id="queueAgent" class="clusandra.core.QueueAgent">
+		<property name="jmsTemplate" ref="jmsTemplate" />
+		<property name="jmsDestination" value="kddQueue" />
+		<property name="sendSize" value="1000" />
+		<property name="streamGenerator" ref="kddGenerator" />
+	</bean>
+
+	<!-- The KDD Stream Reader reads data records from the 1999 KDD Cup Data 
+		Set and sends them on to a clusterer via the queueing system. -->
+	<bean id="kddGenerator" class="clusandra.stream.KddStreamGenerator">
+		<property name="queueAgent" ref="queueAgent" />
+		<!-- A map of configuration key-value pairs for this StreamReader -->
+		<property name="config">
+			<map>
+				<!-- Specify the location of the KDD Cup data set -->
+				<entry key="kddFileKey"
+					value="/Users/jfernandez/UWF/COT 6931 Project/DataSets/kddcup.data.corrected" />
+				<!-- Specify a maximum number of data records to read from the data set. 
+					The default is to read all data records -->
+				<entry key="dataSetSize" value="60000000" />
+			</map>
+		</property>
+	</bean>
+
+	<!-- The connection factory for the JMS provider -->
+	<bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+		<property name="brokerURL" value="tcp://localhost:61616" />
+		<!-- <property name="brokerURL" value="tcp://192.168.1.110:61616" /> -->
+	</bean>
+
+	<!-- Spring JMS Template -->
+	<bean id="jmsTemplate" class="org.springframework.jms.core.JmsTemplate">
+		<!-- The JMS connection factory to use. -->
+		<property name="connectionFactory" ref="pooledJmsConnectionFactory" />
+	</bean>
+
+	<!-- ActiveMQ's pooled connection factory -->
+	<bean id="pooledJmsConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory"
+		destroy-method="stop">
+		<property name="connectionFactory" ref="jmsConnectionFactory" />
+	</bean>
+
+	<!-- These beans are JMX related and required in order to manage the QueueAgent 
+		via JMX. These beans should not be modified. -->
+	<bean id="exporter" class="org.springframework.jmx.export.MBeanExporter">
+		<property name="assembler" ref="assembler" />
+		<property name="namingStrategy" ref="namingStrategy" />
+	</bean>
+	<!-- will create management interface using annotation meta-data -->
+	<bean id="assembler"
+		class="org.springframework.jmx.export.assembler.MetadataMBeanInfoAssembler">
+		<property name="attributeSource" ref="jmxAttributeSource" />
+	</bean>
+	<bean id="jmxAttributeSource"
+		class="org.springframework.jmx.export.annotation.AnnotationJmxAttributeSource" />
+	<!-- will pick up the ObjectName from the annotation -->
+	<bean id="namingStrategy"
+		class="org.springframework.jmx.export.naming.MetadataNamingStrategy">
+		<property name="attributeSource" ref="jmxAttributeSource" />
+	</bean>
+
+</beans>

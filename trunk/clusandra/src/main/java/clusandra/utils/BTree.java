@@ -308,37 +308,42 @@ public class BTree implements Runnable {
 
 		// now we need to determine which child (if any) of the chosen leaf node
 		// has a cluster that is closest to the given cluster. A child of a leaf
-		// is an 'Entry', and a leaf may contain many children
+		// is an 'Entry' that contains an actual microcluster, and a leaf may
+		// contain many children.
 		if (!leaf.isEmpty()) {
 
 			LOG.debug("insert: leaf node has this many entries " + leaf.size());
 
-			// first find the closest entry (cluster)
+			// first find the closest entry (cluster). restrict the search to
+			// only those microclusters that are temporally relevant to the
+			// given microcluster
 			double minDist = Double.MAX_VALUE;
 			for (Node child : leaf.getChildren()) {
-				double dist = cluster.getDistance(child.center);
-				if (dist < minDist) {
-					entry = (Entry) child;
-					minDist = dist;
+				if (((Entry) child).isRelevant(cluster.getLST()
+						/ cluster.getN())) {
+					double dist = cluster.getDistance(child.center);
+					if (dist < minDist) {
+						entry = (Entry) child;
+						minDist = dist;
+					}
 				}
 			}
 
 			// Do the two clusters spatially overlap?
-			if (cluster.spatialOverlap(entry.cluster, getOverlapFactor())) {
+			if (entry != null
+					&& cluster
+							.spatialOverlap(entry.cluster, getOverlapFactor())) {
 				LOG.debug("insert: two microclusters spatially overlap");
-				// If they are temporally relevant, then merge the two
-				if (entry.isRelevant(cluster.getLST() / cluster.getN())) {
-					entry.absorb(cluster);
-					LOG.debug("insert: two microclusters temporally relevant");
-					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
-					// CASSANDRA
-					return;
-				}
+				entry.absorb(cluster);
+				// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+				// CASSANDRA
+				return;
 			}
 
 			// determine if there is any entry in the leaf that is no
 			// longer relevant wrt to this new cluster. if so, replace the
-			// irrelevant entry with this new one
+			// irrelevant entry with this new one. the irrelevant entry has
+			// already been persisted out to cassandra
 			for (Node child : leaf.getChildren()) {
 				entry = (Entry) child;
 				if (!entry.isRelevant(cluster.getLST() / cluster.getN())) {
@@ -354,8 +359,7 @@ public class BTree implements Runnable {
 			LOG.debug("insert: leaf node is empty");
 		}
 
-		// cluster was not absorbed, so write it out to the DB and
-		// add it as a new leaf entry.
+		// add the entry to the tree
 		entry = new Entry(cluster);
 		leaf.addChild(entry);
 		size++;
@@ -599,6 +603,15 @@ public class BTree implements Runnable {
 		return nn;
 	}
 
+	/**
+	 * There are two types of nodes in the tree: Node and Leaf.
+	 * 
+	 * A Node contains other Nodes, while a Leaf contains an Entry, which
+	 * encapsulates a microcluster
+	 * 
+	 * @author jfernandez
+	 * 
+	 */
 	private class Node {
 
 		double N = 0.0d;
@@ -683,10 +696,19 @@ public class BTree implements Runnable {
 			N = cluster.getN();
 		}
 
+		ClusandraKernel getCluster() {
+			return cluster;
+		}
+
+		double getDensity() {
+			return density;
+		}
+
 		void absorb(ClusandraKernel target) {
 			// before absorbing the given cluster, set the new density based on
 			// the creation time of the given cluster
-			density = getDensity(target.getCT());
+			// ???????????????????
+			density = getTemporalDensity(target.getCT());
 			cluster.merge(target);
 			center = Arrays.copyOf(cluster.getCenter(), center.length);
 			N = cluster.getN();
@@ -706,7 +728,7 @@ public class BTree implements Runnable {
 		boolean isRelevant(double time) {
 			LOG.trace("isRelevant: entered with this time = "
 					+ getClusandraDate((long) time));
-			double td = getDensity(time);
+			double td = getTemporalDensity(time);
 			LOG.trace("isRelevant: calculated density  = " + td);
 			double ratio = (td - 1.0d) / (getMaximumDensity() - 1.0d);
 			LOG.trace("isRelevant: ratio  = " + ratio);
@@ -726,24 +748,23 @@ public class BTree implements Runnable {
 		 *            If time is set to 0, then the current time is used.
 		 * @return
 		 */
-		private double getDensity(double time) {
+		private double getTemporalDensity(double time) {
 			if (time == 0.0d) {
 				time = System.currentTimeMillis();
-			} else if (time <= this.cluster.getLAT()) {
-				return this.density;
+			} else if (time <= getCluster().getLAT()) {
+				return getDensity();
 			}
 			// transform the times from milliseconds to seconds
-			time = time / 1000;
-			double avgT = (cluster.getLST() / cluster.getN()) / 1000;
+			time = time / 1000.0d;
+			double avgT = (getCluster().getLST() / getCluster().getN()) / 1000.0d;
 
-			LOG.trace("getDensity: delta = " + (time - avgT));
+			LOG.trace("getTemporalDensity: delta = " + (time - avgT));
 
-			double d1 = (Math.pow(getLambda(), Math.round(time - avgT)) * this.density) + 1.0d;
+			double d1 = (Math.pow(getLambda(), Math.round(time - avgT)) * getDensity()) + 1.0d;
 
-			LOG.trace("getDensity: d1 = " + d1);
+			LOG.trace("getTemporalDensity: d1 = " + d1);
 
 			return (d1 > getMaximumDensity()) ? getMaximumDensity() : d1;
-
 		}
 
 	}

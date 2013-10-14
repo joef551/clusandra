@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
+
+	<!-- This Spring XML file is used to configure one or more CluSandra-specific, 
+		Cassandra Data Access Objects (DAO). You want to configure a DAO for each 
+		of the distinct data streams that are to be processed by the CluSandra framework. -->
+	
+	<!-- The Cassandra DAO that is wired to a Clusterer. The DAO facilitates 
+		writing and reading to and from the Cassandra DAO. -->
+	<bean id="cassandraDao" class="clusandra.cassandra.CassandraDao">
+		<property name="clusterTable" value="clusterTable" />
+		<property name="clusterIndexTable" value="clusterIndexTable" />
+		<!-- This property identifies the Cassandra cluster to be used. -->
+		<property name="cassandraCluster">
+			<bean class="org.scale7.cassandra.pelops.Cluster">
+				<!-- These are the different nodes in the cluster. -->
+				<constructor-arg index="0" type="java.lang.String"
+					value="localhost" />
+				<!-- This is the port number for the cluster. -->
+				<constructor-arg index="1" type="int" value="9160" />
+				<!-- The number of milliseconds thrift should wait to complete an operation 
+					(zero or less disables the timeout) -->
+				<constructor-arg index="2" type="int" value="4000" />
+				<!-- true if nodes should be discovered dynamically -->
+				<constructor-arg index="3" type="boolean" value="false" />
+			</bean>
+		</property>
+		<property name="keySpace" value="clusandra" />
+		<!-- The default consistency level for the DAO.  -->
+		<property name="consistency" value="ONE" />
+	</bean>
+
+</beans>

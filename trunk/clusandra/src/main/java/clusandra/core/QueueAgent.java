@@ -55,7 +55,7 @@ import clusandra.stream.StreamGenerator;
  * The QueueAgent is also wired to either a StreamGenerator or Processor; it
  * cannot be wired to both.
  * 
- * A StreamGenerator will only use the JmsTemplate for writing to a queue,
+ * A StreamGenerator uses the JmsTemplate only for writing to a queue,
  * whilst a Processor must use the read JmsTemplate and may optionally use a
  * write JmsTemplate.
  * 
@@ -64,7 +64,7 @@ import clusandra.stream.StreamGenerator;
  * (BTreeClusterer) from where the reduced micro-clusters are persisted to the
  * Cassandra DB. The general idea is that the processing, or in this case
  * clustering, of the data stream can be fanned out or balanced across multiple
- * instances of a Processor. Thos instances then send their resulting
+ * instances of a Processor. Those instances then send their resulting
  * micro-clusters to the reducer.
  * 
  * Another example of a Processor would be a component that executes a running

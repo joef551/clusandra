@@ -39,7 +39,7 @@ import static clusandra.utils.BTree.MAX_ENTRIES;
 /**
  * 
  * The BTreeClusterer accepts microclusters from many KmeansClusterers and
- * inserts the microclusters into a BTree from where they are persisted to the
+ * maintains the microclusters in a BTree from where they are persisted to the
  * Cassandra DB.
  * 
  * Microclusters that are to be inserted into the tree can be absorbed by

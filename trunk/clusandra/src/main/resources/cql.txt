@@ -1,0 +1,117 @@
+/* 
+
+ This is a sample Clusandra Query Language (CQL) command file.  CQL commands 
+ can be invoked interactively or through a batch file like this one. The CQL 
+ provides a text-based interface through which end-user can query the Clusandra
+ cluster data store. 
+
+ 
+ The '--', '/*' and '*/' strings are comment delimiters. The '--' is for 
+ one-line commands.
+
+*/
+
+
+/* 
+ First connect to the Cassandra cluster. If authentication is active, then
+ you must also provide a user name and password as follows:
+ 
+         connect <host name> <port number> <user name> <password>
+ */
+connect localhost 9160;
+
+/* 
+Now specify the keyspace to use on the cluster that we've just connected
+with. 
+*/
+use clusandra;
+
+/*
+   Example select that projects all fields for a set of clusters, within a 
+   certain time horizon, sorted by radius. Dates/times must be specified 
+   in the following format:
+   
+               <year>:<month>:<day>:<hours>:<minutes>:<seconds> 
+               
+   All fields are required and the hours must be specified in 24-hour format.
+   The 'sort by' clause *must* be the last clause of the select statement
+*/
+--select * where start = 2011:08:24:00:00:01 and end = 2011:08:24:23:59:00 sort by radius;
+
+/*
+   Same as above, but only project some of the fields. Valid fields are N, ID, RADIUS, CT
+   and LAT. CT is the date and time the cluster was created and LAT is the date and time
+   the cluster last absorbed a DataRecord. The N field's value represents the number of 
+   DataRecords that a cluster has absorbed. If N is 1, then CT will equal LAT. 
+*/
+-- select n, id, radius where start = 2011:08:17:00:00:01 and end = 2011:08:17:23:59:00 sort by radius;
+
+/*
+   Example select that projects all the fields for a set of clusters, within a 
+   certain time horizon, a radius range, whose N is less than 70 and sorted by 
+   radius. 
+*/
+--select * where start = 2011:08:17:00:00:01 and end = 2011:08:20:23:59:00 and radius > 150 and 
+--radius < 175  and N < 70 sort by radius;
+
+
+/* Select statement that projects all fields for all the clusters sorted by N */
+-- select * where sort by N;
+
+/* 
+   Select statement that projects all fields for all the clusters whose N is 
+   greater than 9, sorted by N 
+*/
+--select * where N > 9 sort by N;
+
+/* 
+   Same as above, but in descending order 
+*/
+-- select * where N > 9 sort by N desc;
+
+/* 
+   Same as above, but radius must be less than 200 and sort by N in ascending 
+   order (default).  
+*/
+-- select * where N < 9 and radius < 200 sort by N;
+
+/*
+Display the number of clusters prior to and after the aggregate
+*/
+--select count where N > 0;
+
+/*
+The aggregate command is used to consolidate or merge those microclusters that
+are very similar. Aggregation is not to be confused with super-clustering. 
+Unlike super-clustering, aggregation reduces the number of overall clusters 
+in the data store. 
+
+The 'start' and 'end' keywords are used to specify the time horizon over which 
+the aggregation is to take place. If a time horizon is not specified, the data
+stream's entire time horizon will be used. The 'overlap' keyword is used to 
+specify how much two clusters must overlap in order to be merged. For example,
+if 'overlap' is set to .5, the tow clusters' radii must overlap by 50%. 
+
+*/
+--aggregate start = 2011:08:20:22:00:01 and end = 2011:08:20:23:59:00 overlap = 0.6 and expire=5;
+
+--select count where N > 2;
+
+--select count where N > 0 start = 2011:08:20:22:00:01 and end = 2011:08:20:23:59:00;
+
+-- select * where radius < 50 sort by radius desc; 
+
+--select * where N > 0;
+
+select count where N > 0;
+--aggregate overlap = 0.8 and expire=5;
+--select count where N > 0;
+
+/*
+Find the distance between two clusters
+*/
+--distance ffcabbdd-a953-48ee-9466-da7b12a4ea85, fff087b0-807d-4aab-b68e-8f9f86db146e;
+-- distance 0de57d30-a5f3-4bfb-bd4d-01fc2a046ca4 ,   175073c4-b818-4644-90e6-38acb3c18b36; 
+
+
+
