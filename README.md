@@ -1,9 +1,14 @@
 clusandra
 =========
 
-Clusandra is a data stream framework that was started as part of a CS master's project at the University of West Florida. 
+Clusandra is a data stream clustering framework that was started as part of a CS master's project at the 
+University of West Florida. It is written entirely in the Java programming language and leverages the 
+Spring framework and any JMS-compliant messaging system. 
 
-The general idea is to have a framework that allows for the distributed or parallel processing of the data stream.
+The general idea is to have a framework that facilitates the distributed processing of the data stream. It also allows you
+to pipeline the processing of the data stream and persist synopsis structures in the Cassandra NoSQL database. For 
+example, you can pipeline a series of modules that preprocess, cluster, and then persist the clusters to the database. 
+Using a integration framework, such as Apache Camel, you can implement a number of different pipelining designs. 
 
 See the trunk/doc directory for papers produced during the project and referenced works . The papers need to be 
 updated to reflect the latest work on Clusandra. 
