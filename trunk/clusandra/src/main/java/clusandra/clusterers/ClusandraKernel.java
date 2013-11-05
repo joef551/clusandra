@@ -40,10 +40,8 @@ import java.util.Formatter;
 
 /**
  * This class represents a CluSandra cluster. If the IDLIST is empty, then it is
- * a Microcluster, else it is a Superor Macro Cluster. All clusters are stored
- * in Cassandra. The term, 'Kernel' is used, instead of 'Cluster', to remain
- * consistent with its superclass.
- * 
+ * a Microcluster, else it is a Super Macro Cluster. All clusters are stored
+ * in Cassandra. 
  * 
  * Based on micro cluster, as defined by Aggarwal et al, On Clustering Massive
  * Data Streams: A Summarization Praradigm in the book Data streams : models and
@@ -608,7 +606,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 		}
 		return Math.sqrt(res);
 
-	}	
+	}
 
 	/**
 	 * Get the mean time of all the absorbed DataRecords
@@ -837,8 +835,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 			ClusandraKernel source = clusters.get(i);
 			for (int j = i + 1; j < clusters.size(); j++) {
 				ClusandraKernel target = clusters.get(j);
-				distance += ClusandraClusterer.getDistance(source.getCenter(),
-						target.getCenter());
+				distance += getDistance(source.getCenter(), target.getCenter());
 				distanceCounter++;
 			}
 		}
@@ -883,7 +880,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 		double dist = getDistance(target.getCenter());
 		return (((sR + tR) - dist) > 0);
 	}
-	
+
 	public static double getDistance(double[] a, double[] b) {
 		if (a.length != b.length) {
 			throw new RuntimeException(

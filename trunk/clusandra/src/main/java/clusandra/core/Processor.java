@@ -36,7 +36,8 @@ import clusandra.core.QueueAgent;
  * Even though this interface was originally intended for clusterers that act on
  * DataRecords, it can also be used for things other than clustering. For
  * example, perhaps it is used for gathering statistics across a sliding or
- * damped window.
+ * damped window or performing principal component analysis (PCA) on a set of
+ * points prior to those points undergoing clustering.
  * 
  * @author jfernandez
  * 

@@ -29,13 +29,16 @@ import java.util.List;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.Random;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
 import clusandra.cassandra.ClusandraDao;
 import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
 import clusandra.core.Processor;
 import clusandra.core.CluMessage;
+import clusandra.utils.StatUtils;
 
 /**
  * This class implements the Kmeans clustering algorithm.
@@ -116,15 +119,19 @@ public class KmeansClusterer implements Processor {
 	// maximum density.
 	private double sparseFactor = 0.25d;
 
+	// when set to true, invokes the optimized euclidean distance algorithm
+	private boolean fastDistance;
+
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// ~~~~~~~~~~~~~ This Algorithm's Configurable Properties ~~~~~~~~~~~~
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// the amount of time a microcluster is allowed to remain active without
-	// absorbing a Datarecord
+	// absorbing a DataRecord
 	private static final String overlapFactorKey = "overlapFactor";
 	private static final String sparseFactorKey = "sparseFactor";
 	private static final String lambdaKey = "lambda";
 	private static final String driftToleranceKey = "driftTolerance";
+	private static final String fastDistanceKey = "fastDistance";
 
 	// default maximum number of iterations before giving up
 	// on convergence
@@ -168,6 +175,9 @@ public class KmeansClusterer implements Processor {
 			} else if (driftToleranceKey.equals(key)) {
 				setDriftTolerance(map.get(key));
 				LOG.trace("driftToleranceKey = " + getDriftTolerance());
+			} else if (fastDistanceKey.equals(key)) {
+				setFastDistance(map.get(key));
+				LOG.trace("fastDistanceKey = " + getFastDistance());
 			}
 		}
 	}
@@ -305,6 +315,19 @@ public class KmeansClusterer implements Processor {
 	 */
 	public double getDriftTolerance() {
 		return driftTolerance;
+	}
+
+	/**
+	 * Specify whether or not to use fast euclidean distance
+	 * 
+	 * @param fastDistance
+	 */
+	public void setFastDistance(String fastDistance) {
+		this.fastDistance = Boolean.parseBoolean(fastDistance.trim());
+	}
+
+	public boolean getFastDistance() {
+		return fastDistance;
 	}
 
 	/**
@@ -489,6 +512,8 @@ public class KmeansClusterer implements Processor {
 			for (DataRecord point : dataRecords) {
 
 				double minDist = Double.MAX_VALUE;
+				// get the cluster that this point id currently assigned to (if
+				// any)
 				KmeansKernel minCluster = point.getKmeansKernel();
 
 				// if the point is assigned to a cluster and the
@@ -500,18 +525,18 @@ public class KmeansClusterer implements Processor {
 				// works best when the number of clusters is greater
 				// than 20
 				if (minCluster != null) {
-					minDist = ClusandraClusterer.getDistance(
-							point.toDoubleArray(), minCluster.getLocation());
+					minDist = getDistance(point.toDoubleArray(),
+							minCluster.getLocation());
 					if (minDist <= (0.5 * minCluster.getDistNN())) {
 						continue;
 					}
 				}
 
-				// find this points nearest cluster centroid
+				// find this point's nearest cluster centroid
 				minDist = Double.MAX_VALUE;
 				minCluster = null;
 				for (KmeansKernel cluster : clusters) {
-					double distance = ClusandraClusterer.getDistance(
+					double distance = getMinDistance(minDist,
 							cluster.getLocation(), point.toDoubleArray());
 					if (distance < minDist) {
 						minDist = distance;
@@ -533,8 +558,8 @@ public class KmeansClusterer implements Processor {
 			// they have not converged.
 			for (KmeansKernel cluster : clusters) {
 				if (cluster.getPoints().size() > 0) {
-					double driftDistance = ClusandraClusterer.getDistance(
-							cluster.getMean(), cluster.getLocation());
+					double driftDistance = getDistance(cluster.getMean(),
+							cluster.getLocation());
 					if (driftDistance > driftTolerance) {
 						converged = false;
 						cluster.setDriftDistance(driftDistance);
@@ -567,8 +592,8 @@ public class KmeansClusterer implements Processor {
 		LOG.debug("clusterDataRecords: number of clusters after merge = "
 				+ clusters.length);
 
-		// now transform the kmeans clusters into a micro-cluster and
-		// send it off to the queue
+		// now transform the kmeans clusters into micro-clusters and
+		// enqueue them 
 		for (KmeansKernel cluster : clusters) {
 			cluster.initMicro();
 			getQueueAgent().sendMessage(new CluMessage(cluster));
@@ -661,8 +686,8 @@ public class KmeansClusterer implements Processor {
 				double dxb = 0.0D;
 				double minDistance = Double.MAX_VALUE;
 				for (int i = 0; i < clusCount; i++) {
-					dxb = ClusandraClusterer.getDistance(
-							clusters[i].getLocation(), point.toDoubleArray());
+					dxb = getDistance(clusters[i].getLocation(),
+							point.toDoubleArray());
 					if (dxb < minDistance) {
 						minDistance = dxb;
 					}
@@ -742,8 +767,7 @@ public class KmeansClusterer implements Processor {
 					// if the sum of the two scaled radii is larger than the
 					// distance between the two clusters, then the two
 					// overlap and will be merged or one absorbs the other
-					double dist = ClusandraClusterer.getDistance(
-							clusters[i].getLocation(),
+					double dist = getDistance(clusters[i].getLocation(),
 							clusters[j].getLocation());
 					// merge the two clusters if there is enough of an overlap
 					if (((r1 + r2) - dist) > 0) {
@@ -781,6 +805,25 @@ public class KmeansClusterer implements Processor {
 		return newClusters;
 	}
 
+	private double getDistance(double[] a, double[] b) {
+		return StatUtils.getDistance(getFastDistance(), a, b);
+	}
+
+	/**
+	 * If fastDistance is enabled, then this method aborts prematurely and
+	 * returns currentMin if, while calculating the distance between a and b, it
+	 * detects that the distance between a and b has gotten larger than
+	 * currentMin.
+	 * 
+	 * @param currentMin
+	 * @param a
+	 * @param b
+	 * @return
+	 */
+	private double getMinDistance(double currentMin, double[] a, double[] b) {
+		return StatUtils.getMinDistance(currentMin, getFastDistance(), a, b);
+	}
+
 	/**
 	 * Get the standard deviation of all the cluster's points relative to the
 	 * cluster's center of gravity.
@@ -809,8 +852,7 @@ public class KmeansClusterer implements Processor {
 		double mean[] = cluster.getMean();
 		double sum = 0.0D;
 		for (DataRecord point : cluster.getPoints()) {
-			double dist = ClusandraClusterer.getDistance(mean,
-					point.toDoubleArray());
+			double dist = getDistance(mean, point.toDoubleArray());
 			sum += (dist * dist);
 		}
 		return sum / N;
@@ -827,8 +869,7 @@ public class KmeansClusterer implements Processor {
 			KmeansKernel minCluster = null;
 			for (int j = 0; j < clusters.length; j++) {
 				if (i != j) {
-					double distance = ClusandraClusterer.getDistance(
-							clusters[i].getLocation(),
+					double distance = getDistance(clusters[i].getLocation(),
 							clusters[j].getLocation());
 					if (distance < minDist) {
 						minCluster = clusters[j];

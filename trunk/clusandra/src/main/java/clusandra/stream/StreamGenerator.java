@@ -27,17 +27,17 @@ import java.util.Map;
 import clusandra.core.QueueAgent;
 
 /**
- * A StreamGenerator reads data records (tuples) off or from a stream, transforms
- * those records into objects of type clusandra.core.DataRecord and then sends
- * those DataRecords to a work queue that is serviced by one or more instances
- * of a Clusterer. When a DataRecord is created, it must be time stamped. It
- * will, by default, time stamp itself.
+ * A StreamGenerator reads data records (tuples) off or from a stream,
+ * transforms those records into objects of type clusandra.core.DataRecord and
+ * then sends those DataRecords to a work queue that is serviced by one or more
+ * instances of a Processor (e.g., a Clusterer). When a DataRecord is created,
+ * it must be time stamped. It will, by default, time stamp itself.
  * 
- * The StreamGenerator's startReader() method is invoked by a QueueAgent that has
- * been wired to the StreamGenerator.
+ * The StreamGenerator's startReader() method is invoked by a QueueAgent that
+ * has been wired to the StreamGenerator.
  * 
- * The StreamGenerator invokes the QueueAgent's sendQ() method to send DataRecords
- * to the JMS queue that has been wired to the QueueAgent.
+ * The StreamGenerator invokes the QueueAgent's sendQ() method to send
+ * DataRecords to the JMS queue that has been wired to the QueueAgent.
  * 
  * @author jfernandez
  * 

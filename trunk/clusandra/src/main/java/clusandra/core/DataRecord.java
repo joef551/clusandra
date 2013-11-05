@@ -28,12 +28,12 @@ import clusandra.clusterers.KmeansKernel;
 
 /**
  * This is an object that is passed through the Clusandra framework, via the JMS
- * queues. It represents a multi-dimensional vector whose attributes are
- * numerical values represented as doubles. It represents an occurrence in the
- * point space.
+ * queues. It encapsulates a multi-dimensional vector whose components are
+ * numerical values represented as doubles. An instance of a DataRecord
+ * represents an occurrence in the point space.
  * 
- * This object is typically injected into the Clusandra framework by
- * StreamGenerators.
+ * This object is typically injected into the Clusandra framework by a
+ * StreamGenerator.
  * 
  */
 public class DataRecord implements Serializable, Comparable<DataRecord> {
@@ -53,6 +53,8 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	private transient KmeansKernel kmeansKernel = null;
 	private transient boolean centroid;
 
+	// a new instance of a DataRecord must use a copy or clone
+	// of the given vector
 	public DataRecord(double[] attValues) {
 		m_AttValues = attValues.clone();
 	}
@@ -80,7 +82,7 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	}
 
 	/**
-	 * Returns the number of attributes.
+	 * Returns the number of attributes or dimensions
 	 * 
 	 * @return the number of attributes as an integer
 	 */
@@ -99,7 +101,7 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	}
 
 	/**
-	 * Returns the values of each attribute as an array of doubles.
+	 * Returns a copy of the encapsulated vector.
 	 * 
 	 * @return an array containing all the instance attribute values
 	 */
@@ -150,7 +152,7 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	}
 
 	/**
-	 * Set the kmeans kernel that this data record pertains to.
+	 * Assign this DataRecord (point) to a kmeans kernel (cluster).
 	 * 
 	 * @param kernel
 	 */

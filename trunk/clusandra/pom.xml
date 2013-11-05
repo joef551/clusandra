@@ -1,5 +1,4 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" 
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
 	http://maven.apache.org/maven-v4_0_0.xsd">
 
@@ -9,7 +8,7 @@
 	<packaging>jar</packaging>
 	<version>1.0</version>
 	<name>clusandra</name>
-	
+
 	<build>
 		<plugins>
 			<plugin>
@@ -34,9 +33,15 @@
 
 	<dependencies>
 		<dependency>
+			<!-- scale7 will eventually be replaced by Cassandra's unified CQL driver -->
 			<groupId>com.github.stephenc.scale7</groupId>
 			<artifactId>scale7-core</artifactId>
 			<version>1.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.scale7</groupId>
+			<artifactId>scale7-pelops</artifactId>
+			<version>1.2-0.8.x-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>junit</groupId>
@@ -44,6 +49,7 @@
 			<version>4.11</version>
 			<scope>test</scope>
 		</dependency>
+		<!-- MOA is used for its stream generators -->
 		<dependency>
 			<groupId>nz.ac.waikato.cms.moa</groupId>
 			<artifactId>moa</artifactId>
@@ -64,6 +70,7 @@
 			<artifactId>activemq-client</artifactId>
 			<version>5.8.0</version>
 		</dependency>
+		<!-- Any JMS system will do -->
 		<dependency>
 			<groupId>org.apache.activemq</groupId>
 			<artifactId>activemq-pool</artifactId>
@@ -71,23 +78,20 @@
 		</dependency>
 		<dependency>
 			<groupId>org.slf4j</groupId>
-			<artifactId>slf4j-api</artifactId>
-			<version>1.7.5</version>
-		</dependency>
-		<dependency>
-			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-log4j12</artifactId>
 			<version>1.7.5</version>
-		</dependency>
-		<dependency>
-			<groupId>org.scale7</groupId>
-			<artifactId>scale7-pelops</artifactId>
-			<version>1.2-0.8.x-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.cassandra</groupId>
 			<artifactId>cassandra-all</artifactId>
 			<version>1.2.0</version>
 		</dependency>
+		<!-- An Efficient Java Matrix Library -->
+		<dependency>
+			<groupId>com.googlecode.efficient-java-matrix-library</groupId>
+			<artifactId>ejml</artifactId>
+			<version>0.23</version>
+		</dependency>
+
 	</dependencies>
 </project>

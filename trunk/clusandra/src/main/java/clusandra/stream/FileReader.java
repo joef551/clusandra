@@ -33,8 +33,8 @@ import clusandra.core.QueueAgent;
 import clusandra.core.DataRecord;
 
 /**
- * This is a StreamGenerator that reads a series of multidimensional vectors found
- * in a file. It is assumed that the vectors comprise numerical/continuous
+ * This is a StreamGenerator that reads a series of multidimensional vectors
+ * found in a file. It is assumed that the vectors comprise numerical/continuous
  * attributes and that any data munging is not required. Each vector represents
  * an occurrence in a point space.
  * 
@@ -141,7 +141,7 @@ public class FileReader implements StreamGenerator {
 
 		BufferedReader reader = null;
 
-		// Open a buffered reader to the cfg file.
+		// Open a buffered reader to the file.
 		try {
 			reader = new BufferedReader(new java.io.FileReader(new File(
 					getFileName())));
@@ -170,33 +170,40 @@ public class FileReader implements StreamGenerator {
 				throw new Exception("ERROR: no tokens present in line");
 			}
 
+			// if not already set, set the number of dimensions; else, ensure
+			// all records have the same number of dimensions
 			if (dimensions < 0) {
 				dimensions = tokens.length;
 			} else if (tokens.length != dimensions) {
 				throw new Exception("encountered varying number of dimensions");
 			}
 
+			// create the array that represents the vector
 			if (location == null) {
 				location = new double[dimensions];
 			}
 
+			// read in the attributes/components for the vector
 			for (int i = 0; i < dimensions; i++) {
 				location[i] = Double.parseDouble(tokens[i].trim());
 			}
 
 			// Create a DataRecord and give it to the QueueAgent to send it to
-			// the CluSandra messaging system.
+			// the CluSandra messaging system. Note that the new instance of the
+			// data record 'copies' the given record; this allows us to reuse it
 			++sampleCnt;
 			DataRecord dRecord = new DataRecord(location);
+			// place the datarecord in the queue; the queue will automatically 
+			// get flushed when it reaches it configurable capacity. 
 			getQueueAgent().sendMessage(dRecord);
-			
-			//int rT = random.nextInt(5);
-			//if(rT > 0){
-			//	Thread.sleep(1000 + (rT * 100));
-			//}
-			
+
+			// int rT = random.nextInt(5);
+			// if(rT > 0){
+			// Thread.sleep(1000 + (rT * 100));
+			// }
+
 		}
-		// send out any stragglers
+		// flush out any stragglers
 		getQueueAgent().flush();
 		endTime = System.currentTimeMillis();
 		double elapsedTime = (endTime - startTime) / 1000.00;

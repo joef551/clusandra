@@ -36,6 +36,7 @@ import clusandra.core.QueueAgent;
 import clusandra.utils.DateUtils;
 import clusandra.core.Processor;
 import clusandra.core.CluMessage;
+import static clusandra.utils.StatUtils.*;
 
 /**
  * This class implements the Clusandra clustering algorithm. This class is
@@ -811,20 +812,5 @@ public class ClusandraClusterer implements Processor {
 		return distanceTotal / distanceCnt;
 	}
 
-	/**
-	 * Get the euclidean distance between the two vectors
-	 * 
-	 * @param a
-	 * @param b
-	 * @return
-	 */
-	public static double getDistance(double[] a, double[] b) {
-		double sum = 0;
-		for (int i = 0; i < a.length; i++) {
-			double diff = a[i] - b[i];
-			sum += diff * diff;
-		}
-		return Math.sqrt(sum);
-	}
 
 }
