@@ -1,5 +1,5 @@
-clusandra
-=========
+Clusandra: A Data Stream Clustering Framework
+=============================================
 
 Clusandra is a data stream clustering framework that was started as part of a CS master's project at the 
 University of West Florida. It is written entirely in the Java programming language and leverages the 
