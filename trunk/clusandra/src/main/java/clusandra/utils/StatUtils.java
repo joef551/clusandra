@@ -25,6 +25,11 @@
  */
 package clusandra.utils;
 
+import java.util.List;
+import clusandra.core.DataRecord;
+
+
+
 /**
  * Some general stats related utils
  * 
@@ -120,5 +125,84 @@ public class StatUtils {
 		return (fast == true) ? getMinDistance(currentMin, a, b) : getDistance(
 				a, b);
 	}
+	
+	/**
+	 * Using the z-score, normalize the given points.
+	 * 
+	 * Since Euclidean distance is used, the clusters will be influenced
+	 * strongly by the magnitudes of the variables, especially by outliers.
+	 * Normalizing removes this bias. However, whether or not one desires this
+	 * removal of bias depends on what one wants to find: sometimes if one would
+	 * want a variable to influence the clusters more, one could manipulate the
+	 * clusters precisely in this way, by increasing the relative magnitude of
+	 * these fields.
+	 * 
+	 * @param points
+	 */
+	public static void normalizePoints(List<DataRecord> points) {
+
+		if (points == null || points.isEmpty()) {
+			return;
+		}
+
+		double N = points.size();
+
+		// first find the mean
+		double[] mean = new double[points.get(0).numValues()];
+		for (DataRecord point : points) {
+			sumArrays(mean, point.getValues());
+		}
+		for (int i = 0; i < mean.length; i++) {
+			mean[i] /= N;
+		}
+
+		// now find the std dev of each of the attributes
+		double[] stdev = new double[mean.length];
+		for (DataRecord point : points) {
+			double[] location = point.getValues();
+			for (int i = 0; i < location.length; i++) {
+				double diff = location[i] - mean[i];
+				stdev[i] += (diff * diff);
+			}
+		}
+		// the above figured out the variance, now take the square
+		// root to get the std dev
+		for (int i = 0; i < stdev.length; i++) {
+			stdev[i] = Math.sqrt(stdev[i] / N);
+		}
+
+		// now that we have the mean and std dev, normalize all the points
+		for (DataRecord point : points) {
+			double[] location = point.getValues();
+			for (int i = 0; i < location.length; i++) {
+				location[i] = (location[i] - mean[i]) / stdev[i];
+			}
+		}
+	}
+	
+	/**
+	 * Adds array B to A
+	 * 
+	 * @param valsA
+	 * @param valsB
+	 * @return
+	 */
+	public static void sumArrays(double[] A, double[] B) {
+		for (int i = 0; i < A.length; i++) {
+			A[i] += B[i];
+		}
+	}
+
+	/**
+	 * Subtracts array B from A
+	 * @param A
+	 * @param B
+	 */
+	public static void subArrays(double[] A, double[] B) {
+		for (int i = 0; i < A.length; i++) {
+			A[i] -= B[i];
+		}
+	}
+
 
 }

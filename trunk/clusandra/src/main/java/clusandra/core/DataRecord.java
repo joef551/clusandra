@@ -29,8 +29,8 @@ import clusandra.clusterers.KmeansKernel;
 /**
  * This is an object that is passed through the Clusandra framework, via the JMS
  * queues. It encapsulates a multi-dimensional vector whose components are
- * numerical values represented as doubles. An instance of a DataRecord
- * represents an occurrence in the point space.
+ * continuous numerical values represented as doubles. An instance of a
+ * DataRecord represents an occurrence in the point space.
  * 
  * This object is typically injected into the Clusandra framework by a
  * StreamGenerator.
@@ -98,6 +98,15 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 
 	public int numValues() {
 		return m_AttValues.length;
+	}
+	
+	/**
+	 * Returns the encapsulated vector. 
+	 * 
+	 * @return
+	 */
+	public double[] getValues(){
+		return m_AttValues;
 	}
 
 	/**
