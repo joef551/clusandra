@@ -17,7 +17,9 @@ Clusandra also incorporates clustering algorithms used for harnessing the fast a
 is based on the concept of cluster-feature trees and the BIRCH paper. 
 
 As I get the time, I continue to evolve Clusandra. Most recently added KMeans-based algorithms to provide better
-clusterings. Also incorporated KMeans++ for initial Kmeans seeding.  
+clusterings. Also incorporated KMeans++ for initial Kmeans seeding, triangle inequality to accelerate K-means 
+(http://cseweb.ucsd.edu/~elkan/kmeansicml03.pdf) optimized version of euclidean distance formulas and 
+data normalization using z-scores.  
 
 Next step is to incorporate Cassandra's latest CQL. You'll note that Clusandra has a CQL, which is not to be confused 
 with Cassandra's CQL. Clusandra-CQL is short for "Clustering Query Language". The initial Cassandra Java client used is 
