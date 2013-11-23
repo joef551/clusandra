@@ -29,10 +29,8 @@ import java.util.List;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.Random;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-
 import clusandra.cassandra.ClusandraDao;
 import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
@@ -593,7 +591,7 @@ public class KmeansClusterer implements Processor {
 				+ clusters.length);
 
 		// now transform the kmeans clusters into micro-clusters and
-		// enqueue them 
+		// enqueue them
 		for (KmeansKernel cluster : clusters) {
 			cluster.initMicro();
 			getQueueAgent().sendMessage(new CluMessage(cluster));
@@ -620,11 +618,15 @@ public class KmeansClusterer implements Processor {
 	}
 
 	/**
-	 * Used for seeding the algorithm using the k-means++.
+	 * Used for seeding the algorithm using a k-means++ deviant.
 	 * 
 	 * The idea behind k-means++ is to spread out the initial clusters as much
 	 * as possible and thus avoid settling on a local optimum; outliers should
 	 * also be avoided.
+	 * 
+	 * Note that this implementation deviates somewhat from the true kmeans++
+	 * (see next method below); however, considerable empirical evidence has
+	 * shown that this hybrid version provides superior results.
 	 * 
 	 * @param points
 	 *            represents the points in the point space
@@ -652,18 +654,9 @@ public class KmeansClusterer implements Processor {
 		int clusCount = 0;
 
 		// randomly find our first cluster centroid from the given points
-		// and mark it as being selected as a centroid
 		int randomIndex = randomGen.nextInt(points.size());
 
-		clusters[clusCount] = new KmeansKernel(points.get(randomIndex));
-
-		// mark the point as already being chosen as a cluster centroid
-		points.get(randomIndex).setCentroid(true);
-
-		clusCount++;
-
-		// we could have stuck the above in the loop below, but doing so
-		// would have added extra overhead to the loop
+		clusters[clusCount++] = new KmeansKernel(points.get(randomIndex));
 
 		// main loop that creates the rest of the clusters
 		for (; clusCount < numClusters; clusCount++) {
@@ -676,12 +669,6 @@ public class KmeansClusterer implements Processor {
 			// their distances to that cluster
 			for (DataRecord point : points) {
 
-				// skip those points that have already been
-				// selected as centroids.
-				if (point.isCentroid()) {
-					continue;
-				}
-
 				// find this point's closest cluster
 				double dxb = 0.0D;
 				double minDistance = Double.MAX_VALUE;
@@ -692,7 +679,7 @@ public class KmeansClusterer implements Processor {
 						minDistance = dxb;
 					}
 				}
-				sumDistance += (minDistance * minDistance);
+				sumDistance += minDistance;
 				point.setDistanceToCluster(minDistance);
 			}
 
@@ -707,7 +694,7 @@ public class KmeansClusterer implements Processor {
 					continue;
 				}
 				double d2 = point.getDistanceToCluster();
-				d2 = (d2 * d2) * probability;
+				d2 = d2 * probability;
 				if (d2 > maxProbability) {
 					maxProbability = d2;
 					maxPoint = point;
@@ -718,6 +705,75 @@ public class KmeansClusterer implements Processor {
 
 		LOG.debug("kmeansPlusPlus: exit");
 
+		return clusters;
+	}
+
+	/**
+	 * True kmeans++
+	 * 
+	 * @param points
+	 * @param numClusters
+	 * @return
+	 */
+	private KmeansKernel[] kmeansPlusPlusTrue(List<DataRecord> points,
+			int numClusters) {
+
+		LOG.debug("kmeansPlusPlusTrue: entered");
+		LOG.debug("kmeansPlusPlusTrue: number of points = " + points.size());
+		LOG.debug("kmeansPlusPlusTrue: number of clusters = " + numClusters);
+		LOG.debug("kmeansPlusPlusTrue: overlap factor = " + getOverlapFactor());
+
+		// always use a different seed! if not, you always end up with the
+		// same initial cluster pattern
+		Random randomGen = new Random();
+
+		// this will hold the set of clusters that will be returned to the
+		// caller
+		KmeansKernel[] clusters = new KmeansKernel[numClusters];
+
+		// keeps track of number of clusters created
+		int clusCount = 0;
+
+		// randomly find our first cluster centroid from the given points
+		// and mark it as being selected as a centroid
+		int randomIndex = randomGen.nextInt(points.size());
+
+		clusters[clusCount++] = new KmeansKernel(points.get(randomIndex));
+
+		// main loop that creates the rest of the clusters
+		for (; clusCount < numClusters; clusCount++) {
+
+			// this will hold the sum of all the distances from each point to
+			// its nearest cluster.
+			double sumDistance = 0.0;
+
+			// assign all points to their nearest cluster and record
+			// their distances to that cluster
+			for (DataRecord point : points) {
+				// find this point's closest cluster
+				double dxb = 0.0D;
+				double minDistance = Double.MAX_VALUE;
+				for (int i = 0; i < clusCount; i++) {
+					dxb = getDistance(clusters[i].getLocation(),
+							point.toDoubleArray());
+					if (dxb < minDistance) {
+						minDistance = dxb;
+					}
+				}
+				sumDistance += minDistance;
+				point.setDistanceToCluster(sumDistance);
+			}
+
+			sumDistance *= randomGen.nextDouble();
+
+			for (int i = 0; i < points.size(); i++) {
+				DataRecord point = (DataRecord) points.get(i);
+				if (point.getDistanceToCluster() >= sumDistance) {
+					clusters[clusCount] = new KmeansKernel(point);
+					break;
+				}
+			}
+		}
 		return clusters;
 	}
 
@@ -739,6 +795,11 @@ public class KmeansClusterer implements Processor {
 
 		int mergeCount = 0;
 		boolean merged = false;
+		double r1 = 0D;
+		double r2 = 0D;
+		for (KmeansKernel cluster : clusters) {
+			cluster.setTmpRadius(-1.0D);
+		}
 
 		do {
 			merged = false;
@@ -748,8 +809,11 @@ public class KmeansClusterer implements Processor {
 				if (clusters[i] == null) {
 					continue;
 				}
-				// scale the 1st radius with the given overlap factor
-				double r1 = getOverlapFactor() * getStdDev(clusters[i]);
+				if ((r1 = clusters[i].getTmpRadius()) < 0) {
+					// scale the 1st radius with the given overlap factor
+					r1 = getOverlapFactor() * getStdDev(clusters[i]);
+					clusters[i].setTmpRadius(r1);
+				}
 				if (r1 == 0.0) {
 					continue;
 				}
@@ -760,9 +824,11 @@ public class KmeansClusterer implements Processor {
 					if (i == j || clusters[j] == null) {
 						continue;
 					}
-
-					// scale the 2nd radius with the given overlap factor
-					double r2 = getOverlapFactor() * getStdDev(clusters[j]);
+					if ((r2 = clusters[j].getTmpRadius()) < 0) {
+						// scale the 1st radius with the given overlap factor
+						r2 = getOverlapFactor() * getStdDev(clusters[j]);
+						clusters[j].setTmpRadius(r2);
+					}
 
 					// if the sum of the two scaled radii is larger than the
 					// distance between the two clusters, then the two
@@ -771,7 +837,13 @@ public class KmeansClusterer implements Processor {
 							clusters[j].getLocation());
 					// merge the two clusters if there is enough of an overlap
 					if (((r1 + r2) - dist) > 0) {
+						// merge cluster j into cluster i, then update cluster
+						// i's new tmp radius
 						clusters[i].merge(clusters[j]);
+						// update the new temp radius
+						clusters[i].setTmpRadius(getOverlapFactor()
+								* getStdDev(clusters[i]));
+						r1 = clusters[i].getTmpRadius();
 						// GC the absorbed cluster.
 						clusters[j] = null;
 						++mergeCount;
