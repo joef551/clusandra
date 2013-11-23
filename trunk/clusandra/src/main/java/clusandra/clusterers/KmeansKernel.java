@@ -35,6 +35,8 @@ public class KmeansKernel extends ClusandraKernel {
 
 	// how far has the cluster drifted from its prior spot
 	protected transient double driftDistance = Double.MAX_VALUE;
+	
+	private transient double tmpRadius;
 
 	/**
 	 * Create a cluster based on given DataRecord. Note that the
@@ -216,6 +218,14 @@ public class KmeansKernel extends ClusandraKernel {
 		for (int i = 0; i < valsA.length; i++) {
 			valsA[i] -= valsB[i];
 		}
+	}
+
+	public double getTmpRadius() {
+		return tmpRadius;
+	}
+
+	public void setTmpRadius(double tmpRadius) {
+		this.tmpRadius = tmpRadius;
 	}
 
 }
