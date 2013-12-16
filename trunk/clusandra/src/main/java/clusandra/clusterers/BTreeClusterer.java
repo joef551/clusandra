@@ -25,15 +25,14 @@ package clusandra.clusterers;
 
 import java.util.Map;
 import java.util.List;
-import java.util.ArrayList;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import clusandra.cassandra.ClusandraDao;
 import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
-import clusandra.core.Processor;
 import clusandra.core.CluMessage;
 import clusandra.utils.BTree;
+import clusandra.core.AbstractProcessor;
 import static clusandra.utils.BTree.MAX_ENTRIES;
 
 /**
@@ -49,14 +48,11 @@ import static clusandra.utils.BTree.MAX_ENTRIES;
  * @author jfernandez
  * 
  */
-public class BTreeClusterer implements Processor {
+public class BTreeClusterer extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(BTreeClusterer.class);
 
 	private static final double OVERLAP_FACTOR = 1.00d;
-
-	// the set of microclusters that this instance of the Clusterer maintains.
-	private List<ClusandraKernel> microClusters = new ArrayList<ClusandraKernel>();
 
 	// this clusterer's CassandraDao
 	private ClusandraDao clusandraDao = null;
@@ -97,11 +93,6 @@ public class BTreeClusterer implements Processor {
 	private static final String sparseFactorKey = "sparseFactor";
 	private static final String lambdaKey = "lambda";
 	private static final String maxEntriesKey = "maxEntries";
-
-	// this clusterers QueueAgent. this clusterer will only read
-	// messages from a queue. the QueueAgent does the reading and
-	// calls this clusterer's processCluMessages method.
-	private QueueAgent queueAgent;
 
 	public BTreeClusterer() {
 	}
@@ -153,24 +144,6 @@ public class BTreeClusterer implements Processor {
 	 */
 	public BTree getBTree() {
 		return bTree;
-	}
-
-	/**
-	 * Invoked by Spring to set the QueueAgent for this Processor.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this Processor.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
 	}
 
 	/**
@@ -378,11 +351,6 @@ public class BTreeClusterer implements Processor {
 
 		LOG.debug(getBTree().printStats());
 		LOG.debug("processCluMessages: exit");
-	}
-
-	public void processDataRecords(List<DataRecord> dataRecords)
-			throws Exception {
-		throw new UnsupportedOperationException();
 	}
 
 }

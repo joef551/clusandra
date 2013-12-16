@@ -27,13 +27,14 @@ import java.io.Serializable;
 import clusandra.clusterers.KmeansKernel;
 
 /**
- * This is an object that is passed through the Clusandra framework, via the JMS
- * queues. It encapsulates a multi-dimensional vector whose components are
- * continuous numerical values represented as doubles. An instance of a
- * DataRecord represents an occurrence in the point space.
+ * This object, which is processed by the CluSandra KmeansClusterer, is passed
+ * through the Clusandra framework, via the JMS queues. It encapsulates a
+ * multi-dimensional vector whose components are continuous numerical values
+ * represented as doubles. An instance of a DataRecord represents an occurrence
+ * in the point space.
  * 
- * This object is typically injected into the Clusandra framework by a
- * StreamGenerator.
+ * This object is typically injected into the Clusandra framework by a stream
+ * generator of some sort.
  * 
  */
 public class DataRecord implements Serializable, Comparable<DataRecord> {
@@ -99,13 +100,13 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	public int numValues() {
 		return m_AttValues.length;
 	}
-	
+
 	/**
-	 * Returns the encapsulated vector. 
+	 * Returns the encapsulated vector.
 	 * 
 	 * @return
 	 */
-	public double[] getValues(){
+	public double[] getValues() {
 		return m_AttValues;
 	}
 

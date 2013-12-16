@@ -29,12 +29,13 @@ import java.util.List;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.Random;
+import java.io.Serializable;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import clusandra.cassandra.ClusandraDao;
 import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
-import clusandra.core.Processor;
+import clusandra.core.AbstractProcessor;
 import clusandra.core.CluMessage;
 import clusandra.utils.StatUtils;
 
@@ -81,7 +82,7 @@ import clusandra.utils.StatUtils;
  * @author jfernandez
  * 
  */
-public class KmeansClusterer implements Processor {
+public class KmeansClusterer extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(KmeansClusterer.class);
 
@@ -137,10 +138,6 @@ public class KmeansClusterer implements Processor {
 
 	private double driftTolerance = DRIFT_TOLERANCE;
 
-	// this clusterers queue agent. this clusterer will both read and send
-	// messages from and to a queue, respectively
-	private QueueAgent queueAgent;
-
 	private double currentDensity;
 
 	// this list is used for grouping DataRecords that are temporally relevant
@@ -178,25 +175,6 @@ public class KmeansClusterer implements Processor {
 				LOG.trace("fastDistanceKey = " + getFastDistance());
 			}
 		}
-	}
-
-	/**
-	 * Invoked by Spring to set the QueueAgent for this Processor.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
-
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this Processor.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
 	}
 
 	/**
@@ -353,14 +331,16 @@ public class KmeansClusterer implements Processor {
 	}
 
 	/**
-	 * Called by Spring to wire this clusterer to its ClusandraDao object
+	 * Called by Spring to wire this clusterer to its ClusandraDao object.
+	 * 
+	 * Note: Not used by this processor.
 	 */
 	public void setClusandraDao(ClusandraDao clusandraDao) {
 		this.clusandraDao = clusandraDao;
 	}
 
 	/**
-	 * Get this clusterer's ClusandraDao. Not used by this processor.
+	 * Get this clusterer's ClusandraDao.
 	 * 
 	 * @return
 	 */
@@ -369,7 +349,7 @@ public class KmeansClusterer implements Processor {
 	}
 
 	/**
-	 * Called by QueueAgent to initialize this Clusterer.
+	 * Called by the wired QueueAgent to initialize this Clusterer.
 	 */
 	public boolean initialize() throws Exception {
 		if (getQueueAgent() == null) {
@@ -383,6 +363,15 @@ public class KmeansClusterer implements Processor {
 					"this clusterer has not been wired to a JmsWriteTemplate");
 		}
 		return true;
+	}
+
+	/**
+	 * Return the working set of microclusters for this clusterer
+	 * 
+	 * @return
+	 */
+	public List<ClusandraKernel> getMicroClusters() {
+		return microClusters;
 	}
 
 	/**
@@ -402,17 +391,28 @@ public class KmeansClusterer implements Processor {
 	 * @param dataRecords
 	 * @throws Exception
 	 */
-	public void processDataRecords(List<DataRecord> dataRecords)
+	public void processCluMessages(List<CluMessage> cluMessages)
 			throws Exception {
 
-		LOG.debug("processDataRecords: entered");
+		LOG.debug("processCluMessages: entered");
 
-		if (dataRecords == null || dataRecords.size() == 0) {
-			LOG.debug("processDataRecords: dataRecords is null or empty");
+		if (cluMessages == null || cluMessages.size() == 0) {
+			LOG.debug("processCluMessages: cluMessages is null or empty");
 			return;
 		}
 
-		LOG.debug("processDataRecords: number of DataRecords received = "
+		List<DataRecord> dataRecords = new ArrayList<DataRecord>();
+		for (CluMessage cMsg : cluMessages) {
+			Serializable obj = cMsg.getBody();
+			if (obj instanceof DataRecord) {
+				dataRecords.add((DataRecord) obj);
+			} else {
+				throw new Exception(
+						"ERROR, cluMessage does not contain a DataRecord");
+			}
+		}
+
+		LOG.debug("processCluMessages: number of DataRecords received = "
 				+ dataRecords.size());
 
 		// first sort the list of data records in ascending timestamp order
@@ -461,7 +461,7 @@ public class KmeansClusterer implements Processor {
 		}
 		clusterDataRecords(recordsToCluster);
 		recordsToCluster.clear();
-		LOG.debug("processDataRecords: exit");
+		LOG.debug("processCluMessages: exit");
 	}
 
 	/**
@@ -601,20 +601,6 @@ public class KmeansClusterer implements Processor {
 
 		LOG.debug("clusterDataRecords: exit");
 
-	}
-
-	public void processCluMessages(List<CluMessage> cluMessages)
-			throws Exception {
-		throw new UnsupportedOperationException();
-	}
-
-	/**
-	 * Return the working set of microclusters for this clusterer
-	 * 
-	 * @return
-	 */
-	public List<ClusandraKernel> getMicroClusters() {
-		return microClusters;
 	}
 
 	/**

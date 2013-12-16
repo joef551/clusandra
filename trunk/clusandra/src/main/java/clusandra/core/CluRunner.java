@@ -31,6 +31,7 @@ import org.springframework.context.support.AbstractXmlApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.context.support.FileSystemXmlApplicationContext;
 import org.springframework.beans.BeansException;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * The CluRunner is used to invoke any object that implements the CluRunnable
@@ -48,6 +49,9 @@ public class CluRunner {
 	private String springFile = "streamer.xml";
 	private String[] args = null;
 
+	CountDownLatch startSignal = new CountDownLatch(1);
+	CountDownLatch doneSignal = null;
+
 	public CluRunner(String[] args) {
 		this.args = args;
 	}
@@ -63,7 +67,7 @@ public class CluRunner {
 			LOG.warn("Started with unknowns");
 		}
 		LOG.info("Started with this Spring xml file [" + getSpringFile() + "]");
-		
+
 		try {
 			if (!getSpringFile().startsWith("file:")) {
 				// Create our Spring application context. The Spring XML
@@ -89,9 +93,14 @@ public class CluRunner {
 			Map<String, CluRunnable> runnables = applContext
 					.getBeansOfType(CluRunnable.class);
 			if (runnables != null && !runnables.isEmpty()) {
+				doneSignal = new CountDownLatch(runnables.size());
 				for (CluRunnable runnable : runnables.values()) {
-					runnable.cluRun();
+					runnable.cluRun(startSignal, doneSignal);
 				}
+				// let all threads proceed
+				startSignal.countDown();
+				// wait for all to finish
+				doneSignal.await();
 			} else {
 				LOG.error("ERROR: Spring XML file does not contain any beans"
 						+ "of tpye CluRunnable");

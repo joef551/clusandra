@@ -6,7 +6,8 @@ import java.util.Enumeration;
 
 /**
  * CluMessage is the generic message object that is passed across message queues
- * and their QueueAgents. The body of the message can be any serializable object. 
+ * and their QueueAgents. The body of the message can be any serializable
+ * object. Each message also includes a set of properties.
  * 
  * @author jfernandez
  * 
@@ -16,11 +17,11 @@ public class CluMessage implements Serializable {
 	private static final long serialVersionUID = 1061844219769950238L;
 	private Properties properties = new Properties();
 	private Serializable body;
-	
-	public CluMessage(){
+
+	public CluMessage() {
 	}
-	
-	public CluMessage(Serializable body){
+
+	public CluMessage(Serializable body) {
 		this.body = body;
 	}
 

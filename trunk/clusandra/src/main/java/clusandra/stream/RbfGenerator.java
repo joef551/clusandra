@@ -26,12 +26,11 @@ package clusandra.stream;
 import java.util.Map;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import clusandra.core.QueueAgent;
 import clusandra.core.DataRecord;
+import clusandra.core.AbstractProcessor;
 //import moa.streams.generators.RandomRBFGenerator;
 import moa.options.IntOption;
 import weka.core.Instance;
-
 
 /**
  * This stream reader/generator, which is used for testing and experimentation,
@@ -40,16 +39,13 @@ import weka.core.Instance;
  * @author jfernandez
  * 
  */
-public class RbfGenerator implements StreamGenerator {
+public class RbfGenerator extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(RbfGenerator.class);
 
 	private static final String dataSetSizeKey = "dataSetSize";
 	private static final String classCountKey = "classCount";
 	private static final String attributeCountKey = "attributeCount";
-	
-
-	private QueueAgent queueAgent;
 
 	// the default number of data records to generate
 	private int dataSetSize = 100;
@@ -57,11 +53,10 @@ public class RbfGenerator implements StreamGenerator {
 	private int classCount = 2;
 	// the default number of attributes
 	private int attributeCount = 10;
-	
+
 	// the file name to use for writing out the stream
 	private String fileName = null;
-	
-	
+
 	// The RBF Generator for this Reader
 	RandomRbfGenerator generator = new RandomRbfGenerator();
 
@@ -85,22 +80,22 @@ public class RbfGenerator implements StreamGenerator {
 			} else if (attributeCountKey.equals(key)) {
 				setAttributeCount(map.get(key));
 				LOG.trace("setConfig:attributeCount = " + getAttributeCount());
-			} 
+			}
 		}
 	}
-	
+
 	/**
-	 * Set the file name that is used to hold the stream.  
+	 * Set the file name that is used to hold the stream.
+	 * 
 	 * @param fileName
 	 * @throws Exception
 	 */
 	public void setFileName(String fileName) throws Exception {
-		if(fileName == null || fileName.length() == 0){
+		if (fileName == null || fileName.length() == 0) {
 			throw new IllegalArgumentException();
 		}
 		this.fileName = fileName;
 	}
-	
 
 	/**
 	 * Called by setConfig() to set the data set size.
@@ -171,30 +166,11 @@ public class RbfGenerator implements StreamGenerator {
 		return attributeCount;
 	}
 
-
-	/**
-	 * Invoked by Spring to set the QueueAgent for this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
-	}
-
 	/**
 	 * This method is invoked by the QueueAgent to start and give control to the
 	 * generator.
 	 */
-	public void startGenerator() {
+	public void produceCluMessages() throws Exception {
 		setOptions();
 		getGenerator().prepareForUse();
 		generateStream();
@@ -203,7 +179,7 @@ public class RbfGenerator implements StreamGenerator {
 	/**
 	 * Generate the stream and send it to the MQS.
 	 */
-	public void generateStream() {
+	public void generateStream() throws Exception {
 		// generate the stream records
 		LOG.info("RbfGenerator: dataSetSize = " + dataSetSize);
 		int sampleCnt = 0;
@@ -219,11 +195,11 @@ public class RbfGenerator implements StreamGenerator {
 		}
 		LOG.info("RbfGenerator: final send count = " + sampleCnt);
 	}
-	
+
 	/**
 	 * Generate the stream and send it to a file.
 	 */
-	public void generateStreamToFile() {
+	public void generateStreamToFile() throws Exception {
 		// generate the stream records
 		LOG.info("RbfGenerator: dataSetSize = " + dataSetSize);
 		int sampleCnt = 0;
@@ -249,13 +225,13 @@ public class RbfGenerator implements StreamGenerator {
 		getGenerator().numAttsOption = new IntOption("numAtts", 'a',
 				"The number of attributes to generate.", getAttributeCount());
 	}
-	
-	public RandomRbfGenerator getGenerator(){
+
+	public RandomRbfGenerator getGenerator() {
 		return generator;
 	}
-	
-	public static void main(String[] args){
-		
+
+	public static void main(String[] args) {
+
 		RbfGenerator stream = new RbfGenerator();
 		stream.setAttributeCount(5);
 		stream.setClassCount(10);
@@ -263,10 +239,10 @@ public class RbfGenerator implements StreamGenerator {
 		stream.getGenerator().prepareForUse();
 		stream.getGenerator().restart();
 		Instance instance = stream.getGenerator().nextInstance();
-		//instance.
+		// instance.
 		System.out.println("Attribute count = " + instance.numAttributes());
 		System.out.println("Attribute to string = " + instance.toString());
-		
+
 	}
 
 }

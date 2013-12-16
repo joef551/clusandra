@@ -45,27 +45,38 @@ import javax.jms.ObjectMessage;
 import javax.jms.Session;
 import static javax.jms.Session.CLIENT_ACKNOWLEDGE;
 import javax.jms.JMSException;
-
-import clusandra.stream.StreamGenerator;
+import java.util.concurrent.CountDownLatch;
 
 /**
- * The QueueAgent is a Clusandra Runnable object that is wired to a JmsTemplate
- * for reading and/or a different JmsTemplate for writing.
+ * The QueueAgent is a Clusandra Runnable object that must be wired to a
+ * JmsTemplate for reading (a.k.a., read queue) and/or a different JmsTemplate
+ * for writing (a.k.a., write queue).
  * 
- * The QueueAgent is also wired to either a StreamGenerator or Processor; it
- * cannot be wired to both.
+ * The QueueAgent must also be wired to a stream Processor.
  * 
- * A StreamGenerator uses the JmsTemplate only for writing to a queue,
- * whilst a Processor must use the read JmsTemplate and may optionally use a
- * write JmsTemplate.
+ * If the QueueAgent is wired to a read queue, then it blocks on the read queue
+ * and passes to the Processor whatever Clusandra messages were consumed from
+ * the read queue. The Processor must process the consumed messages in a timely
+ * manner. After processing the consumed messages, and before giving control
+ * back to the QueueAgent, the Processor may give the QueueAgent messages that
+ * it produces to send to the write queue; these produced messages are sent to
+ * the next Processor in the Stream work flow.
  * 
- * The KmeansClusterer is an example of a Processor that acts as clusterer. It
- * produces micro-clusters than can then be sent to a cluster reducer
- * (BTreeClusterer) from where the reduced micro-clusters are persisted to the
- * Cassandra DB. The general idea is that the processing, or in this case
- * clustering, of the data stream can be fanned out or balanced across multiple
- * instances of a Processor. Those instances then send their resulting
- * micro-clusters to the reducer.
+ * A QueueAgent may only be wired to a write queue, in which case it gives full
+ * control to the Processor. For example, a stream generator is an example of a
+ * Processor that produces messages, but does not consume them.
+ * 
+ * The KmeansClusterer is an example of a Processor that consumes messages from
+ * a read queue and produces messages to a write queue. The messages it consumes
+ * are multivariate vectors that are produced by a stream generator. The
+ * messages that it produces are in the form of micro-clusters that are sent to
+ * a Processor called a BTreeClusterer. The BTreeClusterer maintains
+ * micro-clusters in a b-tree from where they are also persisted to the
+ * Cassandra DB. The BTreeClusterer will merge micro-clusters that are both
+ * spatially and temporally similar. The general idea is that the processing, or
+ * in this case clustering, of the data stream can be fanned out or balanced
+ * across multiple instances of a Processor. Those instances then send their
+ * resulting micro-clusters to the BTreeClusterer, which is a reducer of sorts.
  * 
  * Another example of a Processor would be a component that executes a running
  * query on the data stream. The query would be based on a sliding or damped
@@ -96,12 +107,13 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	Thread runner;
 	// the Processor that is wired to this QueueAgent
 	Processor processor = null;
-	// the StreamGenerator that is wired to this QueueAgent
-	StreamGenerator streamGenerator = null;
 	// this cluRunnable's unique name
 	String name = "";
 
 	boolean testing = true;
+
+	private CountDownLatch startSignal;
+	private CountDownLatch doneSignal;
 
 	public QueueAgent() {
 	}
@@ -119,33 +131,35 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	 * Clusterers may be assigned a CassandraDao.
 	 * 
 	 */
-	public void cluRun() throws Exception {
-		if (getJmsReadTemplate() == null && isProcessor()) {
-			LOG.error("ERROR: Processor has not been assigned a JmsReadTemplate");
-			throw new Exception("JmsReadTemplate has not been set");
-		} else if (getJmsWriteTemplate() == null
-				&& getStreamGenerator() != null) {
-			LOG.error("ERROR: StreamGenerator has not been assigned a JmsWriteTemplate");
-			throw new Exception("JmsWriteTemplate has not been set");
-		} else if (getStreamGenerator() == null && !isProcessor()) {
-			LOG.error("ERROR: QueueAgent is wired neither to a StreamGenerator nor Processor");
+	public void cluRun(CountDownLatch startSignal, CountDownLatch doneSignal)
+			throws Exception {
+
+		if (getJmsReadTemplate() == null && getJmsWriteTemplate() == null) {
+			LOG.error("ERROR: This QueueAgent has not been assigned either a "
+					+ "read or write JMS template:" + getName());
 			throw new Exception(
-					"QueueAgent is wired neither to a StreamGenerator nor Processor");
-		} else if (getStreamGenerator() != null && isProcessor()) {
-			LOG.error("ERROR: QueueAgent cannot be wired to both StreamGenerator and Processor");
-			throw new Exception(
-					"QueueAgent cannot be wired to both StreamGenerator and Processor");
+					"ERROR: This QueueAgent has not been assigned either a "
+							+ "read or write JMS template:" + getName());
 		}
-		//runner = new Thread(this, "CluSandra QueueAgent: " + toString());
-		//runner.setDaemon(true);
-		//runner.start();
-		run();
+
+		if (getProcessor() == null) {
+			LOG.error("ERROR: This QueueAgent has not been assigned a "
+					+ "Procesor:" + getName());
+			throw new Exception(
+					"ERROR: This QueueAgent has not been assigned a "
+							+ "Procesor:" + getName());
+		}
+		this.startSignal = startSignal;
+		this.doneSignal = doneSignal;
+		runner = new Thread(this, "CluSandra QueueAgent: " + toString());
+		runner.setDaemon(true);
+		runner.start();
 	}
 
 	/**
 	 * JMX-invoked operation to shut down this CluRunnable
 	 */
-	@ManagedOperation(description="Shut down or stop this component")
+	@ManagedOperation(description = "Shut down or stop this component")
 	public void shutdown() {
 		// needs work
 		System.exit(0);
@@ -304,12 +318,12 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 			LOG.warn("WARNING: message is null");
 			return 0;
 		}
-		if (this.getJmsWriteTemplate() == null) {
+		if (getJmsWriteTemplate() == null) {
 			LOG.warn("ERROR: this QueueAgent has not been wired to a JmsWriteTemaplte");
 			throw new Exception(
 					"ERROR: this QueueAgent has not been wired to a JmsWriteTemaplte");
 		}
-		getSendBuffer().add(message);
+		getSendBuffer().add(new CluMessage(message));
 		if (getSendBuffer().size() == getSendSize()) {
 			return sendQ();
 		}
@@ -322,7 +336,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	 * 
 	 * @return number of DataRecords flushed to JMQ queue.
 	 */
-	public synchronized int flush() {
+	public synchronized int flush() throws JmsException {
 		return sendQ();
 	}
 
@@ -345,71 +359,40 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	}
 
 	/**
-	 * Spring invokes this method to wire the QueueAgent to a StreamGenerator.
-	 * 
-	 * @param clusterer
-	 */
-	public void setStreamGenerator(StreamGenerator streamGenerator) {
-		this.streamGenerator = streamGenerator;
-	}
-
-	/**
-	 * Get the StreamGenerator that is wired to this QueueAgent.
-	 * 
-	 * @return
-	 */
-	public StreamGenerator getStreamGenerator() {
-		return streamGenerator;
-	}
-
-	/**
-	 * Start this QueueAgent's thread.
+	 * Start this QueueAgent.
 	 */
 	public void run() {
-
-		LOG.info("QueueAgent started");
-
-		// See if this QueueAgent is hosting a StreamGenerator or Processor. If
-		// it is the latter then read from assigned queue, else give control to
-		// the StreamGenerator.
-		if (getStreamGenerator() != null) {
-			if (getStreamGenerator().getQueueAgent() == null) {
-				LOG.error("ERROR: the StreamGenerator has not been wired to a QueueAgent");
-				return;
-			} else if (!getStreamGenerator().getQueueAgent().getName()
-					.equals(getName())) {
-				LOG.error("ERROR: the StreamGenerator is not wired to this QueueAgent");
-				return;
-			}
-			try {
-				getStreamGenerator().startGenerator();
-			} catch (Exception exc) {
-				LOG.error("ERROR: exception from QueueAgent's StreamGenerator - "
-						+ exc.getMessage());
-				exc.printStackTrace(System.out);
-			}
-		} else if (getProcessor() != null) {
-			// if we're not wired to a StreamGenerator, then we must be wired to
-			// a Processor. Ensure our Processor is wired to this QueueAgent
-			if (getProcessor().getQueueAgent() == null) {
-				getProcessor().setQueueAgent(this);
-			} else if (!getProcessor().getQueueAgent().getName()
-					.equals(getName())) {
-				LOG.error("ERROR: the Processor is prewired to a QueueAgent, but it is not this QueueAgent");
-				return;
-			}
-			try {
-				if (getProcessor().initialize()) {
+		LOG.info("This QueueAgent started: " + getName());
+		try {
+			startSignal.await();
+			// See if this QueueAgent has been assigned a read and/or write
+			// queue.
+			// If it has a read queue, then begin to read from the queue, else
+			// give
+			// control to the Processor.
+			if (getJmsReadTemplate() == null) {
+				try {
+					getProcessor().produceCluMessages();
+				} catch (Exception exc) {
+					LOG.error("ERROR: exception from QueueAgent's Processor - "
+							+ exc.getMessage());
+					exc.printStackTrace(System.out);
+				}
+			} else {
+				try {
 					// block on the read queue
 					readQ();
+				} catch (Exception exc) {
+					LOG.error("ERROR: exception from QueueAgent's queue reader - "
+							+ exc.getMessage());
+					exc.printStackTrace(System.out);
 				}
-			} catch (Exception exc) {
-				LOG.error("ERROR: exception from QueueAgent's queue reader - "
-						+ exc.getMessage());
-				exc.printStackTrace(System.out);
 			}
+			doneSignal.countDown();
+		} catch (InterruptedException exc) {
+			LOG.error("received InterruptedException exception");
 		}
-		LOG.info("QueueAgent completed");
+		LOG.info("This QueueAgent completed: " + getName());
 		return;
 	}
 
@@ -418,50 +401,38 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	}
 
 	// Send the contents of the message buffer to the JMS provider.
-	private int sendQ() {
+	private int sendQ() throws JmsException {
 		int sendSize = 0;
 		if (getSendBuffer().isEmpty()) {
 			return sendSize;
 		}
 		sendSize = getSendBuffer().size();
-		try {
-			getJmsWriteTemplate().send(getJmsWriteDestination(),
-					new MessageCreator() {
-						public Message createMessage(Session session)
-								throws JMSException {
-							return session.createObjectMessage(getSendBuffer());
-						}
-					});
-		} catch (JmsException exc) {
-			LOG.error("ERROR, received this JmsException when sending:"
-					+ exc.getMessage());
-			exc.printStackTrace(System.out);
-			return 0;
-		}
+
+		getJmsWriteTemplate().send(getJmsWriteDestination(),
+				new MessageCreator() {
+					public Message createMessage(Session session)
+							throws JMSException {
+						return session.createObjectMessage(getSendBuffer());
+					}
+				});
+
 		getSendBuffer().clear();
 		return sendSize;
 	}
 
 	/*
 	 * This is the method that does the reading from the JMS queue. The
-	 * DataRecords or CluMessages that are read from the queue are given to the
-	 * Clusterer or Processor to process. The read from the queue takes place
-	 * until: 1. The read times out and messages had been previously received or
-	 * 2. The max number of messages have been received.
-	 * 
-	 * 
-	 * 
-	 * TODO: DataRecord and Clusterer are deprecated and code should eventually
-	 * remove references to them
+	 * CluMessages that are read from the queue are given to the Processor to
+	 * process. The read from the queue takes place until: 1. The read times out
+	 * and messages had been previously received or 2. The max number of
+	 * messages have been received.
 	 */
 	void readQ() throws Exception {
-		List<DataRecord> dataRecords = new ArrayList<DataRecord>();
 		List<CluMessage> cluMessages = new ArrayList<CluMessage>();
 		Message msg = null;
 		Message lastMsgRead = null;
 		while (true) {
 			try {
-
 				// wait for a message (payload) to arrive - the wait time is
 				// specified in the Spring XML file for this QueueAgent
 				LOG.trace("readQ: blocking on queue");
@@ -488,19 +459,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 					Vector v2 = (Vector) ob1;
 
 					ob1 = v2.get(0);
-					if (ob1 instanceof DataRecord) {
-						for (Object ob2 : v2) {
-							if (ob2 instanceof DataRecord) {
-								dataRecords.add((DataRecord) ob2);
-							} else {
-								LOG.error("ERROR: object in received "
-										+ "Vector was not of type DataRecord");
-								throw new MessageConversionException(
-										"object in received  "
-												+ "Vector was not of type DataRecord");
-							}
-						}
-					} else if (ob1 instanceof CluMessage) {
+					if (ob1 instanceof CluMessage) {
 						for (Object ob2 : v2) {
 							if (ob2 instanceof CluMessage) {
 								cluMessages.add((CluMessage) ob2);
@@ -527,20 +486,6 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 				 * previously read, or 2. The payload has exceeded its max size.
 				 * Acknowledge all messages after the processor does its thing.
 				 */
-				if ((msg == null && !dataRecords.isEmpty())
-						|| dataRecords.size() >= getReadSize()) {
-					try {
-						getProcessor().processDataRecords(dataRecords);
-						// Ok to now acknowledge all messages read
-						if (getJmsReadTemplate().getSessionAcknowledgeMode() == CLIENT_ACKNOWLEDGE) {
-							lastMsgRead.acknowledge();
-						}
-
-					} finally {
-						lastMsgRead = null;
-						dataRecords.clear();
-					}
-				}
 				if ((msg == null && !cluMessages.isEmpty())
 						|| cluMessages.size() >= getReadSize()) {
 					try {

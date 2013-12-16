@@ -30,6 +30,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import clusandra.core.QueueAgent;
 import clusandra.core.DataRecord;
+import clusandra.core.AbstractProcessor;
 
 /**
  * This is a test StreamGenerator that works off the Cover Type data set acquired
@@ -41,7 +42,7 @@ import clusandra.core.DataRecord;
  * @author jfernandez
  * 
  */
-public class CoverTypeStreamGenerator implements StreamGenerator {
+public class CoverTypeStreamGenerator extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory
 			.getLog(CoverTypeStreamGenerator.class);
@@ -67,24 +68,7 @@ public class CoverTypeStreamGenerator implements StreamGenerator {
 		}
 	}
 
-	/**
-	 * Invoked by Spring to set the QueueAgent for this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
 
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
-	}
 
 	/**
 	 * Set the name (including path) of the file to use.
@@ -108,7 +92,7 @@ public class CoverTypeStreamGenerator implements StreamGenerator {
 	 * This method is invoked by the QueueAgent to start and give control to the
 	 * StreamGenerator.
 	 */
-	public void startGenerator() throws Exception {
+	public void produceCluMessages() throws Exception {
 		double sampleCnt = 0L;
 		String[] s1 = null;
 

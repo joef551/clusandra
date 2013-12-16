@@ -32,11 +32,10 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import clusandra.cassandra.ClusandraDao;
 import clusandra.core.DataRecord;
-import clusandra.core.QueueAgent;
 import clusandra.utils.DateUtils;
-import clusandra.core.Processor;
 import clusandra.core.CluMessage;
 import static clusandra.utils.StatUtils.*;
+import clusandra.core.AbstractProcessor;
 
 /**
  * This class implements the Clusandra clustering algorithm. This class is
@@ -45,7 +44,7 @@ import static clusandra.utils.StatUtils.*;
  * @author jfernandez
  * 
  */
-public class ClusandraClusterer implements Processor {
+public class ClusandraClusterer extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(ClusandraClusterer.class);
 
@@ -170,27 +169,6 @@ public class ClusandraClusterer implements Processor {
 					"invalid clusterDistanceFactor specified; value must be > 1.0 and < 2.0");
 		}
 		this.clusterDistanceFactor = clusterDistanceFactor;
-	}
-
-	/**
-	 * Invoked by Spring to set the QueueAgent for this Clusterer.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		// not used. 
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this Clusterer. This Clusterer
-	 * does not send messages to a queue; therefore it does not use the
-	 * QueueAgent for this purpose. However, the QueueAgent does call into this
-	 * Clusterer to process a set of DataRecords.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return null;
 	}
 
 	/**
@@ -470,9 +448,9 @@ public class ClusandraClusterer implements Processor {
 	public List<ClusandraKernel> getMicroClusters() {
 		return microClusters;
 	}
-	
+
 	public void processCluMessages(List<CluMessage> cluMessages)
-	throws Exception {
+			throws Exception {
 		throw new UnsupportedOperationException();
 	}
 
@@ -811,6 +789,5 @@ public class ClusandraClusterer implements Processor {
 		}
 		return distanceTotal / distanceCnt;
 	}
-
 
 }

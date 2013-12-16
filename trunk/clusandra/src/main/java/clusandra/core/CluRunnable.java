@@ -24,6 +24,7 @@
 
 package clusandra.core;
 
+import java.util.concurrent.CountDownLatch;
 import org.springframework.beans.factory.BeanNameAware;
 
 /**
@@ -39,7 +40,8 @@ import org.springframework.beans.factory.BeanNameAware;
  * 
  */
 public interface CluRunnable extends BeanNameAware {
-	public void cluRun() throws Exception;
+	public void cluRun(CountDownLatch startSignal, CountDownLatch doneSignal)
+			throws Exception;
 
 	public void setName(String name);
 

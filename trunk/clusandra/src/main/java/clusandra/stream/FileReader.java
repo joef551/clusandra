@@ -23,14 +23,15 @@
  */
 package clusandra.stream;
 
+
 import java.util.Map;
 import java.io.BufferedReader;
 import java.io.File;
 import java.util.Random;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import clusandra.core.QueueAgent;
 import clusandra.core.DataRecord;
+import clusandra.core.AbstractProcessor;
 
 /**
  * This is a StreamGenerator that reads a series of multidimensional vectors
@@ -42,15 +43,20 @@ import clusandra.core.DataRecord;
  * 
  * http://cs.joensuu.fi/sipu/datasets/
  * 
+ * This particular instance of a Processor is a StreamGenerator reads data
+ * records (tuples) off or from a stream, transforms those records into objects
+ * of type clusandra.core.DataRecord and then sends those DataRecords to a work
+ * queue that is serviced by one or more instances of a Processor (e.g., a
+ * Clusterer). When a DataRecord is created, it must be time stamped. It will,
+ * by default, time stamp itself.
  * 
  * @author jfernandez
  * 
  */
-public class FileReader implements StreamGenerator {
+public class FileReader extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(FileReader.class);
 
-	private QueueAgent queueAgent;
 	private String fileKey = "fileKey";
 	private String delimKey = "delimeterKey";
 	private String fileName = null;
@@ -59,7 +65,8 @@ public class FileReader implements StreamGenerator {
 
 	/**
 	 * Invoked by Spring to set the Map that contains configuration parameters
-	 * for this StreamGenerator.
+	 * for this Processor. It also gives the Processor an opportunity to
+	 * initialize itself.
 	 * 
 	 * @param map
 	 */
@@ -73,25 +80,6 @@ public class FileReader implements StreamGenerator {
 				LOG.trace("setConfig:Delimeter = " + getDelimiter());
 			}
 		}
-	}
-
-	/**
-	 * Invoked by Spring to set the QueueAgent for this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
-
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
 	}
 
 	/**
@@ -132,9 +120,9 @@ public class FileReader implements StreamGenerator {
 
 	/**
 	 * This method is invoked by the QueueAgent to start and give control to the
-	 * StreamGenerator.
+	 * Processor.
 	 */
-	public void startGenerator() throws Exception {
+	public void produceCluMessages() throws Exception {
 		double sampleCnt = 0L;
 
 		LOG.trace("Using this file = " + getFileName());
@@ -193,8 +181,8 @@ public class FileReader implements StreamGenerator {
 			// data record 'copies' the given record; this allows us to reuse it
 			++sampleCnt;
 			DataRecord dRecord = new DataRecord(location);
-			// place the datarecord in the queue; the queue will automatically 
-			// get flushed when it reaches it configurable capacity. 
+			// place the data record in the queue; the queue will automatically
+			// get flushed when it reaches its configurable capacity.
 			getQueueAgent().sendMessage(dRecord);
 
 			// int rT = random.nextInt(5);
@@ -215,4 +203,5 @@ public class FileReader implements StreamGenerator {
 		LOG.info("startReader: DataRecords per second = "
 				+ (sampleCnt / elapsedTime));
 	}
+
 }

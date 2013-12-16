@@ -25,19 +25,12 @@ package clusandra.core;
 
 import java.util.Map;
 import java.util.List;
-
-import clusandra.cassandra.ClusandraDao;
 import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
 
 /**
- * A Processor reads DataRecords or CluMessages from a JMS queue.
- * 
- * Even though this interface was originally intended for clusterers that act on
- * DataRecords, it can also be used for things other than clustering. For
- * example, perhaps it is used for gathering statistics across a sliding or
- * damped window or performing principal component analysis (PCA) on a set of
- * points prior to those points undergoing clustering.
+ * A Processor acts on and/or produces DataRecords or CluMessages from a JMS
+ * queue.
  * 
  * @author jfernandez
  * 
@@ -47,22 +40,17 @@ public interface Processor {
 
 	/**
 	 * Invoked by Spring to set the Map that contains configuration parameters
-	 * for this Clusterer.
+	 * for the Processor.
 	 * 
 	 * @param map
 	 * @exception thrown
-	 *                if there is an invalid cfg parameter
+	 *                if there is an invalid configuration parameter
 	 */
 	public void setConfig(Map<String, String> map) throws Exception;
 
 	/**
-	 * Called by QueueAgent to initialize this Clusterer.
-	 */
-	public boolean initialize() throws Exception;
-
-	/**
 	 * Called by the QueueAgent to give the Processor a collection of objects,
-	 * of type CluMessage, to process.
+	 * of type CluMessage or DataRecord, to process.
 	 * 
 	 * @param dataRecords
 	 * @throws Exception
@@ -70,18 +58,18 @@ public interface Processor {
 	public void processCluMessages(List<CluMessage> cluMessages)
 			throws Exception;
 
+
 	/**
-	 * Called by the QueueAgent to give the Clusterer a collection of
-	 * DataRecords to process.
+	 * Called by the QueueAgent to give control to the Processor. This is the
+	 * case when the QueueAgent has not been assigned a read queue.
 	 * 
 	 * @param dataRecords
 	 * @throws Exception
 	 */
-	public void processDataRecords(List<DataRecord> dataRecords)
-			throws Exception;
+	public void produceCluMessages() throws Exception;
 
 	/**
-	 * Invoked by Spring to set the QueueAgent for this Processor. This is
+	 * Invoked by Spring to inject the QueueAgent for this Processor. This is
 	 * optional, as the QueueAgent can do the wiring.
 	 * 
 	 * @param map
@@ -89,16 +77,10 @@ public interface Processor {
 	public void setQueueAgent(QueueAgent queueAgent);
 
 	/**
-	 * Returns the QueueAgent that is wired to this Clusterer.
+	 * Returns the QueueAgent that is wired to this Processor.
 	 * 
 	 * @param map
 	 */
 	public QueueAgent getQueueAgent();
 
-	/**
-	 * The optional Cassandra DAO that is wired to this Clusterer.
-	 * 
-	 * @param cassandraDao
-	 */
-	public void setClusandraDao(ClusandraDao clusandraDao);
 }

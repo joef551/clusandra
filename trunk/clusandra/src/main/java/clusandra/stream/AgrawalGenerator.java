@@ -26,9 +26,8 @@ package clusandra.stream;
 import java.util.Map;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import clusandra.core.QueueAgent;
 import clusandra.core.DataRecord;
-
+import clusandra.core.AbstractProcessor;
 
 
 /**
@@ -38,14 +37,12 @@ import clusandra.core.DataRecord;
  * @author jfernandez
  * 
  */
-public class AgrawalGenerator implements StreamGenerator {
+public class AgrawalGenerator extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(AgrawalGenerator.class);
 
 	private static final String dataSetSizeKey = "dataSetSize";
 	
-
-	private QueueAgent queueAgent;
 
 	// the default number of data records to generate
 	private int dataSetSize = 100;
@@ -94,28 +91,10 @@ public class AgrawalGenerator implements StreamGenerator {
 
 
 	/**
-	 * Invoked by Spring to set the QueueAgent for this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
-	}
-
-	/**
 	 * This method is invoked by the QueueAgent to start and give control to the
 	 * generator.
 	 */
-	public void startGenerator() {
+	public void produceCluMessages() throws Exception {
 		moa.streams.generators.AgrawalGenerator gen = new moa.streams.generators.AgrawalGenerator();
 		gen.prepareForUse();
 		gen.restart();
