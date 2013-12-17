@@ -27,6 +27,7 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.jms.core.MessageCreator;
 import org.springframework.jms.JmsException;
 import org.springframework.beans.factory.BeanNameAware;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.jms.support.converter.MessageConversionException;
 import org.apache.commons.logging.LogFactory;
 import org.apache.commons.logging.Log;
@@ -43,8 +44,11 @@ import org.springframework.jmx.export.annotation.ManagedOperation;
 import javax.jms.Message;
 import javax.jms.ObjectMessage;
 import javax.jms.Session;
+
 import static javax.jms.Session.CLIENT_ACKNOWLEDGE;
+
 import javax.jms.JMSException;
+
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -55,12 +59,12 @@ import java.util.concurrent.CountDownLatch;
  * The QueueAgent must also be wired to a stream Processor.
  * 
  * If the QueueAgent is wired to a read queue, then it blocks on the read queue
- * and passes to the Processor whatever Clusandra messages were consumed from
+ * and passes, to the Processor, whatever Clusandra messages were consumed from
  * the read queue. The Processor must process the consumed messages in a timely
  * manner. After processing the consumed messages, and before giving control
  * back to the QueueAgent, the Processor may give the QueueAgent messages that
  * it produces to send to the write queue; these produced messages are sent to
- * the next Processor in the Stream work flow.
+ * the next Processor in the stream work flow.
  * 
  * A QueueAgent may only be wired to a write queue, in which case it gives full
  * control to the Processor. For example, a stream generator is an example of a
@@ -86,7 +90,8 @@ import java.util.concurrent.CountDownLatch;
  * 
  */
 @ManagedResource(objectName = "CluSandra:name=CluRunnable")
-public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
+public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
+		InitializingBean {
 
 	private static final Log LOG = LogFactory.getLog(QueueAgent.class);
 	// The JMS template to use for reading from a queue
@@ -97,9 +102,9 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	String jmsReadDestination;
 	// The JMS destination (queue) to write to
 	String jmsWriteDestination;
-	// The max size of the send buffer
+	// The default max size of the send buffer
 	int sendSize = 20;
-	// the maximum number of DataRecords to read
+	// the default maximum number of messages to read
 	int readSize = 20;
 	// The send buffer
 	Vector<Serializable> sendBuffer = new Vector<Serializable>();
@@ -124,15 +129,9 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 	}
 
 	/**
-	 * This method is invoked by the CluRunner to start the QueueAgent and its
-	 * wired beans.
-	 * 
-	 * Stream readers and clusterers must be assigned a JMS destination.
-	 * Clusterers may be assigned a CassandraDao.
-	 * 
+	 * Called by Spring after all of this bean's properties have been set.
 	 */
-	public void cluRun(CountDownLatch startSignal, CountDownLatch doneSignal)
-			throws Exception {
+	public void afterPropertiesSet() throws Exception {
 
 		if (getJmsReadTemplate() == null && getJmsWriteTemplate() == null) {
 			LOG.error("ERROR: This QueueAgent has not been assigned either a "
@@ -142,6 +141,22 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 							+ "read or write JMS template:" + getName());
 		}
 
+		if (getJmsReadTemplate() != null && getJmsReadDestination() == null) {
+			LOG.error("ERROR: This QueueAgent has not been assigned a "
+					+ "read destination:" + getName());
+			throw new Exception(
+					"ERROR: This QueueAgent has not been assigned a "
+							+ "read destination:" + getName());
+		}
+
+		if (getJmsWriteTemplate() != null && getJmsWriteDestination() == null) {
+			LOG.error("ERROR: This QueueAgent has not been assigned a "
+					+ "write destination:" + getName());
+			throw new Exception(
+					"ERROR: This QueueAgent has not been assigned a "
+							+ "write destination:" + getName());
+		}
+
 		if (getProcessor() == null) {
 			LOG.error("ERROR: This QueueAgent has not been assigned a "
 					+ "Procesor:" + getName());
@@ -149,6 +164,14 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 					"ERROR: This QueueAgent has not been assigned a "
 							+ "Procesor:" + getName());
 		}
+	}
+
+	/**
+	 * This method is invoked by the CluRunner to start the QueueAgent and its
+	 * wired beans.
+	 */
+	public void cluRun(CountDownLatch startSignal, CountDownLatch doneSignal)
+			throws Exception {
 		this.startSignal = startSignal;
 		this.doneSignal = doneSignal;
 		runner = new Thread(this, "CluSandra QueueAgent: " + toString());
@@ -283,7 +306,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 
 	/**
 	 * Set the max number of DataRecords to read from queue. The Clusterer's
-	 * processDataRecords method is called when this max is reached, or
+	 * processCluMessages method is called when this max is reached, or
 	 * breached, or the read timeout expires and DataRecords have been read.
 	 * 
 	 * @param sendSize
@@ -304,10 +327,10 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 
 	/**
 	 * Place a message in the send buffer. You cannot mix message types in the
-	 * send buffer. They must all be of type CluMessage or DataRecord. The
-	 * buffer is automatically flushed to the JMS provider when it reaches its
-	 * maximum size or you can invoke flush() to flush it manually. After the
-	 * buffer is flushed, it can be reloaded with a different message type.
+	 * send buffer. The buffer is automatically flushed to the JMS provider when
+	 * it reaches its maximum size or you can invoke flush() to flush it
+	 * manually. After the buffer is flushed, it can be reloaded with a
+	 * different message type.
 	 * 
 	 * @param message
 	 * @return the number of messages that were flushed to the JMS queue or 0 if
@@ -317,11 +340,6 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 		if (message == null) {
 			LOG.warn("WARNING: message is null");
 			return 0;
-		}
-		if (getJmsWriteTemplate() == null) {
-			LOG.warn("ERROR: this QueueAgent has not been wired to a JmsWriteTemaplte");
-			throw new Exception(
-					"ERROR: this QueueAgent has not been wired to a JmsWriteTemaplte");
 		}
 		getSendBuffer().add(new CluMessage(message));
 		if (getSendBuffer().size() == getSendSize()) {
@@ -402,11 +420,11 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 
 	// Send the contents of the message buffer to the JMS provider.
 	private int sendQ() throws JmsException {
-		int sendSize = 0;
+
 		if (getSendBuffer().isEmpty()) {
-			return sendSize;
+			return 0;
 		}
-		sendSize = getSendBuffer().size();
+		int sendSize = getSendBuffer().size();
 
 		getJmsWriteTemplate().send(getJmsWriteDestination(),
 				new MessageCreator() {
@@ -491,7 +509,8 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 					try {
 						getProcessor().processCluMessages(cluMessages);
 						// Ok to now acknowledge all messages read
-						if (getJmsReadTemplate().getSessionAcknowledgeMode() == CLIENT_ACKNOWLEDGE) {
+						if (getJmsReadTemplate().getSessionAcknowledgeMode() 
+								== CLIENT_ACKNOWLEDGE) {
 							lastMsgRead.acknowledge();
 						}
 					} finally {
@@ -513,9 +532,4 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware {
 			}
 		} // while(true)
 	}
-
-	private boolean isProcessor() {
-		return (getProcessor() != null);
-	}
-
 }

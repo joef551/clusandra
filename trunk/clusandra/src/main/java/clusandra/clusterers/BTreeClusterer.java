@@ -25,10 +25,11 @@ package clusandra.clusterers;
 
 import java.util.Map;
 import java.util.List;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
 import clusandra.cassandra.ClusandraDao;
-import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
 import clusandra.core.CluMessage;
 import clusandra.utils.BTree;

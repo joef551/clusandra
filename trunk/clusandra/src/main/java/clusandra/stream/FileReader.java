@@ -23,21 +23,22 @@
  */
 package clusandra.stream;
 
-
 import java.util.Map;
 import java.io.BufferedReader;
 import java.io.File;
 import java.util.Random;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import clusandra.core.DataRecord;
+
+import clusandra.clusterers.DataRecord;
 import clusandra.core.AbstractProcessor;
 
 /**
- * This is a StreamGenerator that reads a series of multidimensional vectors
- * found in a file. It is assumed that the vectors comprise numerical/continuous
- * attributes and that any data munging is not required. Each vector represents
- * an occurrence in a point space.
+ * This is a stream generator (i.e., Processor) that reads a series of
+ * multidimensional vectors found in a file. It is assumed that the vectors
+ * comprise numerical/continuous attributes and that any data munging is not
+ * required. Each vector represents an occurrence in a point space.
  * 
  * This site includes sample cluster data sets:
  * 
@@ -45,10 +46,8 @@ import clusandra.core.AbstractProcessor;
  * 
  * This particular instance of a Processor is a StreamGenerator reads data
  * records (tuples) off or from a stream, transforms those records into objects
- * of type clusandra.core.DataRecord and then sends those DataRecords to a work
- * queue that is serviced by one or more instances of a Processor (e.g., a
- * Clusterer). When a DataRecord is created, it must be time stamped. It will,
- * by default, time stamp itself.
+ * of type clusandra.clusterers.DataRecord and then sends those DataRecords to a
+ * work queue that is serviced by the CluSandra KmeansClusterer.
  * 
  * @author jfernandez
  * 
@@ -120,7 +119,8 @@ public class FileReader extends AbstractProcessor {
 
 	/**
 	 * This method is invoked by the QueueAgent to start and give control to the
-	 * Processor.
+	 * Processor. In this particular case, the Processor is wired to a send
+	 * queue, but not a read queue.
 	 */
 	public void produceCluMessages() throws Exception {
 		double sampleCnt = 0L;
@@ -181,8 +181,10 @@ public class FileReader extends AbstractProcessor {
 			// data record 'copies' the given record; this allows us to reuse it
 			++sampleCnt;
 			DataRecord dRecord = new DataRecord(location);
-			// place the data record in the queue; the queue will automatically
-			// get flushed when it reaches its configurable capacity.
+			// place the data record in the queue buffer; the buffer will
+			// automatically
+			// get flushed when it reaches its configurable capacity. However, a
+			// Processor can flush it any time.
 			getQueueAgent().sendMessage(dRecord);
 
 			// int rT = random.nextInt(5);
@@ -191,7 +193,7 @@ public class FileReader extends AbstractProcessor {
 			// }
 
 		}
-		// flush out any stragglers
+		// flush out any stragglers left in the send buffer
 		getQueueAgent().flush();
 		endTime = System.currentTimeMillis();
 		double elapsedTime = (endTime - startTime) / 1000.00;

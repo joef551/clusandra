@@ -4,7 +4,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import clusandra.core.DataRecord;
 
 /**
  * Cluster type used by the Kmeans clusterer.

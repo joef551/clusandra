@@ -30,10 +30,11 @@ import java.util.Collections;
 import java.util.ArrayList;
 import java.util.Random;
 import java.io.Serializable;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
 import clusandra.cassandra.ClusandraDao;
-import clusandra.core.DataRecord;
 import clusandra.core.QueueAgent;
 import clusandra.core.AbstractProcessor;
 import clusandra.core.CluMessage;

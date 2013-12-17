@@ -26,7 +26,8 @@
 package clusandra.utils;
 
 import java.util.List;
-import clusandra.core.DataRecord;
+
+import clusandra.clusterers.DataRecord;
 
 
 

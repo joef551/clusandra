@@ -21,20 +21,20 @@
  * $Author: jose $
  * $Id: DataRecord.java 125 2011-08-23 19:06:55Z jose $
  */
-package clusandra.core;
+package clusandra.clusterers;
 
 import java.io.Serializable;
-import clusandra.clusterers.KmeansKernel;
 
 /**
- * This object, which is processed by the CluSandra KmeansClusterer, is passed
- * through the Clusandra framework, via the JMS queues. It encapsulates a
- * multi-dimensional vector whose components are continuous numerical values
+ * This object represents a message that is processed by the CluSandra
+ * KmeansClusterer. The message is injected into the CluSandra framework by a
+ * stream generator, of some sort, and it encapsulates a multi-dimensional or
+ * multivariate vector whose components are continuous numerical values
  * represented as doubles. An instance of a DataRecord represents an occurrence
- * in the point space.
+ * in a point space.
  * 
- * This object is typically injected into the Clusandra framework by a stream
- * generator of some sort.
+ * All message types that are passed through the CluSandra framework must be
+ * Serializable.
  * 
  */
 public class DataRecord implements Serializable, Comparable<DataRecord> {
@@ -42,7 +42,7 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	private static final long serialVersionUID = 1955537382154981392L;
 
 	// Record the creation time of this DataRecord. It may later be
-	// overridden by the StreamGenerator with the raw data stream record's time
+	// overridden by the stream generator with the raw data stream record's time
 	// stamp (if any).
 	private double timestamp = System.currentTimeMillis();
 
@@ -54,12 +54,19 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	private transient KmeansKernel kmeansKernel = null;
 	private transient boolean centroid;
 
-	// a new instance of a DataRecord must use a copy or clone
-	// of the given vector
+	/**
+	 * A new instance of a DataRecord must use a copy or clone of the given
+	 * vector
+	 */
 	public DataRecord(double[] attValues) {
 		m_AttValues = attValues.clone();
 	}
 
+	/**
+	 * Create a data record with the given number of dimensions
+	 * 
+	 * @param numAttributes
+	 */
 	public DataRecord(int numAttributes) {
 		m_AttValues = new double[numAttributes];
 	}
@@ -98,7 +105,7 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	 */
 
 	public int numValues() {
-		return m_AttValues.length;
+		return numAttributes();
 	}
 
 	/**
@@ -162,7 +169,7 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	}
 
 	/**
-	 * Assign this DataRecord (point) to a kmeans kernel (cluster).
+	 * Assign this data record to a kmeans kernel (cluster).
 	 * 
 	 * @param kernel
 	 */

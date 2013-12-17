@@ -28,10 +28,11 @@ import java.util.Date;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
 import clusandra.cassandra.ClusandraDao;
-import clusandra.core.DataRecord;
 import clusandra.utils.DateUtils;
 import clusandra.core.CluMessage;
 import static clusandra.utils.StatUtils.*;

@@ -25,7 +25,8 @@ package clusandra.core;
 
 import java.util.Map;
 import java.util.List;
-import clusandra.core.DataRecord;
+
+import clusandra.clusterers.DataRecord;
 import clusandra.core.QueueAgent;
 
 /**

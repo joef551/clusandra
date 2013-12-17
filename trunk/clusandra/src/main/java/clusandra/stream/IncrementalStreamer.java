@@ -24,10 +24,12 @@
 package clusandra.stream;
 
 import java.util.*;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
+import clusandra.clusterers.DataRecord;
 import clusandra.core.QueueAgent;
-import clusandra.core.DataRecord;
 import moa.streams.generators.AgrawalGenerator;
 import moa.streams.generators.RandomRBFGenerator;
 import moa.streams.generators.RandomTreeGenerator;

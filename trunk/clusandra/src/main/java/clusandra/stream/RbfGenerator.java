@@ -24,9 +24,11 @@
 package clusandra.stream;
 
 import java.util.Map;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import clusandra.core.DataRecord;
+
+import clusandra.clusterers.DataRecord;
 import clusandra.core.AbstractProcessor;
 //import moa.streams.generators.RandomRBFGenerator;
 import moa.options.IntOption;

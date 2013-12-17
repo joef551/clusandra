@@ -24,13 +24,14 @@
 package clusandra.clusterers;
 
 import weka.core.Instance;
-import clusandra.core.DataRecord;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.Collections;
 import java.io.Serializable;
+
 import org.apache.cassandra.thrift.Column;
 import org.apache.cassandra.thrift.SuperColumn;
 import org.apache.commons.logging.Log;

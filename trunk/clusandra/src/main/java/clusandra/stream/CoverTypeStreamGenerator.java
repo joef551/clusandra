@@ -26,10 +26,12 @@ package clusandra.stream;
 import java.util.Map;
 import java.util.Scanner;
 import java.io.File;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
+import clusandra.clusterers.DataRecord;
 import clusandra.core.QueueAgent;
-import clusandra.core.DataRecord;
 import clusandra.core.AbstractProcessor;
 
 /**
