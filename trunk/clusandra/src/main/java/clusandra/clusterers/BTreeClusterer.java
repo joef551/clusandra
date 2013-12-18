@@ -30,7 +30,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import clusandra.cassandra.ClusandraDao;
-import clusandra.core.QueueAgent;
 import clusandra.core.CluMessage;
 import clusandra.utils.BTree;
 import clusandra.core.AbstractProcessor;

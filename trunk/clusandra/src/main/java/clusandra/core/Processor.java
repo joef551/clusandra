@@ -25,18 +25,17 @@ package clusandra.core;
 
 import java.util.Map;
 import java.util.List;
-
-import clusandra.clusterers.DataRecord;
 import clusandra.core.QueueAgent;
 
 /**
- * A Processor acts on and/or produces DataRecords or CluMessages from a JMS
- * queue.
+ * A Processor acts on and/or produces CluMessages. A stream generator is an
+ * example of a Processor that produces CluMessages, while a clusterer is an
+ * exmple of a Processor that processes or consumes CluMessages. A Processor can
+ * both produce and consume messages.
  * 
  * @author jfernandez
  * 
  */
-
 public interface Processor {
 
 	/**
@@ -50,8 +49,8 @@ public interface Processor {
 	public void setConfig(Map<String, String> map) throws Exception;
 
 	/**
-	 * Called by the QueueAgent to give the Processor a collection of objects,
-	 * of type CluMessage or DataRecord, to process.
+	 * Called by the QueueAgent to give the Processor a List of CluMessages to
+	 * process or consume.
 	 * 
 	 * @param dataRecords
 	 * @throws Exception
@@ -59,10 +58,9 @@ public interface Processor {
 	public void processCluMessages(List<CluMessage> cluMessages)
 			throws Exception;
 
-
 	/**
-	 * Called by the QueueAgent to give control to the Processor. This is the
-	 * case when the QueueAgent has not been assigned a read queue.
+	 * Called by the QueueAgent to give control to the Processor; as would be
+	 * the case when the QueueAgent has not been assigned a read queue.
 	 * 
 	 * @param dataRecords
 	 * @throws Exception
@@ -70,8 +68,7 @@ public interface Processor {
 	public void produceCluMessages() throws Exception;
 
 	/**
-	 * Invoked by Spring to inject the QueueAgent for this Processor. This is
-	 * optional, as the QueueAgent can do the wiring.
+	 * Invoked by Spring to inject the QueueAgent for this Processor.
 	 * 
 	 * @param map
 	 */

@@ -59,9 +59,9 @@ import clusandra.utils.StatUtils;
  * </pre>
  * 
  * This Clusterer runs the Kmeans against a list of data stream records
- * (occurrences in point space) to produce micro clusters. Note its a list and
+ * (occurrences in point space) to produce microclusters. Note its a list and
  * not a set because it is conceivable that duplicate points may exist. It sends
- * the resulting micro clusters to the specified message queue. The micro
+ * the resulting microclusters to the specified message queue. The micro
  * clusters sent to the queue are then clustered into a BTree by one central
  * BTreeClusterer. The idea being that you can have many instances of the
  * KmeansClusterer working in parallel to harness the data stream's records,
@@ -74,8 +74,8 @@ import clusandra.utils.StatUtils;
  * Data. KDD '07
  * 
  * The above paper describes an approach for managing the temporal density of
- * micro-clusters or data points without having to visit a micro-cluster each
- * and every time period; as described in:
+ * microclusters or data points without having to visit a microcluster each and
+ * every time period; as described in:
  * 
  * Citation: Feng Cao, Martin Ester, Weining Qian, Aoying Zhou: Density-Based
  * Clustering over an Evolving Data Stream with Noise. SDM 2006
@@ -95,37 +95,40 @@ public class KmeansClusterer extends AbstractProcessor {
 
 	// the set of microclusters that this instance of the Clusterer maintains.
 	private List<ClusandraKernel> microClusters = new ArrayList<ClusandraKernel>();
-
-	// this clusterer's CassandraDao
-	private ClusandraDao clusandraDao = null;
-
-	// The overlap factor controls the merging of clusters. If the factor
-	// is set to 1.0, then the two clusters will merge iff their radii
-	// overlap. If the factor is set to 0.5, then the two will merge iff
-	// one-half their radii overlap. So in the latter case, the clusters
-	// must be much closer to one another.
+	/*
+	 * The overlap factor controls the merging of clusters. If the factor is set
+	 * to 1.0, then the two clusters will merge iff their radii overlap. In
+	 * other words, iff they are within one standard deviation of another. If
+	 * the factor is set to 0.5, then the two will merge iff one-half their
+	 * radii overlap. So in the latter case, the clusters must be much closer to
+	 * one another.
+	 */
 	private double overlapFactor = OVERLAP_FACTOR;
-
-	// Lambda is the forgetfulness factor. It dictates how quickly a set of
-	// DataRecords becomes temporally irrelevant. The lower the value for
-	// lambda, the quicker the set becomes irrelevant. When a set becomes
-	// temporally irrelevant it is clustered and the resulting micro-clusters
-	// are sent on to the CTreeClusterer.
+	/*
+	 * Lambda is the forgetfulness factor. It dictates how quickly a set of
+	 * DataRecords becomes temporally irrelevant. The lower the value for
+	 * lambda, the quicker the set becomes irrelevant. When a set becomes
+	 * temporally irrelevant it is clustered and the resulting microclusters are
+	 * sent on to the BTreeClusterer.
+	 */
 	private double lambda = 0.5d;
 
-	// the density, as a factor of maximum density, that a set of DataRecords is
-	// considered irrelevant. So if the factor is set to 0.25, then the set
-	// becomes temporally irrelevant if its density falls below 25% of its
-	// maximum density.
+	/*
+	 * the density, as a factor of maximum density, that a set of DataRecords is
+	 * considered irrelevant. So if the factor is set to 0.25, then the set
+	 * becomes temporally irrelevant if its density falls below 25% of its
+	 * maximum density.
+	 */
 	private double sparseFactor = 0.25d;
 
 	// when set to true, invokes the optimized euclidean distance algorithm
 	private boolean fastDistance;
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// ~~~~~~~~~~~~~ This Algorithm's Configurable Properties ~~~~~~~~~~~~
+	// ~~~ The Key Names for This Algorithm's Configurable Properties ~~~
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// the amount of time a microcluster is allowed to remain active without
+	// the key names of the amount of time a microcluster is allowed to remain
+	// active without
 	// absorbing a DataRecord
 	private static final String overlapFactorKey = "overlapFactor";
 	private static final String sparseFactorKey = "sparseFactor";
@@ -332,41 +335,6 @@ public class KmeansClusterer extends AbstractProcessor {
 	}
 
 	/**
-	 * Called by Spring to wire this clusterer to its ClusandraDao object.
-	 * 
-	 * Note: Not used by this processor.
-	 */
-	public void setClusandraDao(ClusandraDao clusandraDao) {
-		this.clusandraDao = clusandraDao;
-	}
-
-	/**
-	 * Get this clusterer's ClusandraDao.
-	 * 
-	 * @return
-	 */
-	public ClusandraDao getClusandraDao() {
-		return clusandraDao;
-	}
-
-	/**
-	 * Called by the wired QueueAgent to initialize this Clusterer.
-	 */
-	public boolean initialize() throws Exception {
-		if (getQueueAgent() == null) {
-			throw new Exception(
-					"this clusterer has not been wired to a QueueAgent");
-		} else if (getQueueAgent().getJmsWriteDestination() == null) {
-			throw new Exception(
-					"this clusterer has not been wired to a JmsWriteDestination");
-		} else if (getQueueAgent().getJmsWriteTemplate() == null) {
-			throw new Exception(
-					"this clusterer has not been wired to a JmsWriteTemplate");
-		}
-		return true;
-	}
-
-	/**
 	 * Return the working set of microclusters for this clusterer
 	 * 
 	 * @return
@@ -398,7 +366,7 @@ public class KmeansClusterer extends AbstractProcessor {
 		LOG.debug("processCluMessages: entered");
 
 		if (cluMessages == null || cluMessages.size() == 0) {
-			LOG.debug("processCluMessages: cluMessages is null or empty");
+			LOG.debug("processCluMessages: cluMessage list is null or empty");
 			return;
 		}
 

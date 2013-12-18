@@ -59,12 +59,12 @@ import java.util.concurrent.CountDownLatch;
  * The QueueAgent must also be wired to a stream Processor.
  * 
  * If the QueueAgent is wired to a read queue, then it blocks on the read queue
- * and passes, to the Processor, whatever Clusandra messages were consumed from
- * the read queue. The Processor must process the consumed messages in a timely
- * manner. After processing the consumed messages, and before giving control
- * back to the QueueAgent, the Processor may give the QueueAgent messages that
- * it produces to send to the write queue; these produced messages are sent to
- * the next Processor in the stream work flow.
+ * and passes, to the Processor, whatever Clusandra messages (CluMessages) were
+ * consumed from the read queue. The Processor must process the consumed
+ * messages in a timely manner. After processing the consumed messages, and
+ * before giving control back to the QueueAgent, the Processor may give the
+ * QueueAgent messages that it produces to send to the write queue; these
+ * produced messages are sent to the next Processor in the stream work flow.
  * 
  * A QueueAgent may only be wired to a write queue, in which case it gives full
  * control to the Processor. For example, a stream generator is an example of a
@@ -509,8 +509,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 					try {
 						getProcessor().processCluMessages(cluMessages);
 						// Ok to now acknowledge all messages read
-						if (getJmsReadTemplate().getSessionAcknowledgeMode() 
-								== CLIENT_ACKNOWLEDGE) {
+						if (getJmsReadTemplate().getSessionAcknowledgeMode() == CLIENT_ACKNOWLEDGE) {
 							lastMsgRead.acknowledge();
 						}
 					} finally {

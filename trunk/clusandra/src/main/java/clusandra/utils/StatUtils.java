@@ -30,7 +30,6 @@ import java.util.List;
 import clusandra.clusterers.DataRecord;
 
 
-
 /**
  * Some general stats related utils
  * 
