@@ -10,34 +10,21 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 		utilized. -->
 
 	<!-- The QueueAgent for the StreamReader. -->
-	<bean id="queueAgent" class="clusandra.core.QueueAgent">
+	<bean id="fileAgent" class="clusandra.core.QueueAgent">
 		<property name="jmsWriteTemplate" ref="jmsTemplate" />
 		<property name="jmsWriteDestination" value="fileQueue" />
 		<property name="sendSize" value="2000" />
-		<property name="streamGenerator" ref="fileStreamer" />
+		<property name="processor" ref="fileReader" />
 	</bean>
 
-	<!-- The KDD Stream Reader reads data records from the 1999 KDD Cup Data 
-		Set and sends them on to a clusterer via the queueing system. -->
-	<bean id="fileStreamer" class="clusandra.stream.FileReader">
-		<property name="queueAgent" ref="queueAgent" />
-		<!-- A map of configuration key-value pairs for this Streamer -->
-		<property name="config">
-			<map>
-				<!-- Specify the location of the KDD Cup data set -->
-				<entry key="fileKey"
-					value="/Users/jfernandez/datasets/dim/dim2.txt" />
-				<!-- Specify a maximum number of data records to read from the data set. 
-					The default is to read all data records -->
-				<entry key="dataSetSize" value="60000000" />
-			</map>
-		</property>
+	<bean id="fileReader" class="clusandra.stream.FileReader">
+		<property name="queueAgent" ref="fileAgent" />
+		<property name="fileName" value="/Users/jfernandez/datasets/dim/dim3.txt" />
 	</bean>
 
 	<!-- The connection factory for the JMS provider -->
 	<bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
 		<property name="brokerURL" value="tcp://localhost:61616" />
-		<!-- <property name="brokerURL" value="tcp://192.168.1.110:61616" /> -->
 	</bean>
 
 	<!-- Spring JMS Template -->

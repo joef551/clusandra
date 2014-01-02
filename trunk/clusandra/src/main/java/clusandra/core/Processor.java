@@ -23,7 +23,6 @@
  * */
 package clusandra.core;
 
-import java.util.Map;
 import java.util.List;
 import clusandra.core.QueueAgent;
 
@@ -37,16 +36,6 @@ import clusandra.core.QueueAgent;
  * 
  */
 public interface Processor {
-
-	/**
-	 * Invoked by Spring to set the Map that contains configuration parameters
-	 * for the Processor.
-	 * 
-	 * @param map
-	 * @exception thrown
-	 *                if there is an invalid configuration parameter
-	 */
-	public void setConfig(Map<String, String> map) throws Exception;
 
 	/**
 	 * Called by the QueueAgent to give the Processor a List of CluMessages to

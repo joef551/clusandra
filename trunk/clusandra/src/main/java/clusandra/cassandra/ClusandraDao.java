@@ -45,8 +45,8 @@ import java.util.Calendar;
 import java.util.Map;
 import java.util.HashMap;
 import clusandra.utils.DateUtils;
-import clusandra.clusterers.ClusandraKernel;
-import static clusandra.clusterers.ClusandraKernel.getClusandraKernel;
+import clusandra.clusterers.MicroCluster;
+import static clusandra.clusterers.MicroCluster.getClusandraKernel;
 
 /**
  * This is a Clusandra-specific, Cassandra Data Access Object (DAO). It is not
@@ -139,21 +139,21 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<ClusandraKernel> getClustersBornOn(Calendar cal)
+	public List<MicroCluster> getClustersBornOn(Calendar cal)
 			throws Exception {
 		// this list will house the clusters to return
-		List<ClusandraKernel> clusters2Ret = new ArrayList<ClusandraKernel>();
+		List<MicroCluster> clusters2Ret = new ArrayList<MicroCluster>();
 		if (cal != null) {
 			// find the name of the target supercolumn in the index table
 			long superCol = getSuperColumnIndexName(cal);
 			// now that we have the index supercolumn, get a list of clusters
 			// that are or were active on this given date
-			List<ClusandraKernel> clusters = getClusters(cal, cal);
+			List<MicroCluster> clusters = getClusters(cal, cal);
 			if (clusters != null && !clusters.isEmpty()) {
 				// Return only those clusters whose CT (creation time) is equal
 				// to the given date
 				Calendar cal1 = Calendar.getInstance();
-				for (ClusandraKernel cluster : clusters) {
+				for (MicroCluster cluster : clusters) {
 					cal1.setTimeInMillis((long) cluster.getCT());
 					// if the CT matches the given date, then the cluster was
 					// born on this date.
@@ -206,7 +206,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @param cluster
 	 * @throws Exception
 	 */
-	public void delCluster(ClusandraKernel cluster) throws Exception{
+	public void delCluster(MicroCluster cluster) throws Exception{
 		if(cluster == null){
 			return;
 		}
@@ -220,10 +220,10 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @return The deleted cluster or null if cluster could not be found
 	 * @throws Exception
 	 */
-	public void delClusters(ArrayList<ClusandraKernel> clusters)
+	public void delClusters(ArrayList<MicroCluster> clusters)
 			throws Exception {
 		if (clusters != null && clusters.size() > 0) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				delCluster(cluster.getID());
 			}
 		}
@@ -236,16 +236,16 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * 
 	 * @return
 	 */
-	public List<ClusandraKernel> getClusters() {
+	public List<MicroCluster> getClusters() {
 		List<Column> clusterKeys;
-		List<ClusandraKernel> clusters = new ArrayList<ClusandraKernel>();
+		List<MicroCluster> clusters = new ArrayList<MicroCluster>();
 		try {
 			clusterKeys = getSelector().getColumnsFromRow(
 					getClusterRecorderTable(), recorderTableRowKey, false,
 					getConsistencyLevel());
 			if (clusterKeys != null && !clusterKeys.isEmpty()) {
 				for (Column column : clusterKeys) {
-					ClusandraKernel cluster = getCluster(new String(
+					MicroCluster cluster = getCluster(new String(
 							column.getName()));
 					if (cluster != null) {
 						clusters.add(cluster);
@@ -267,10 +267,10 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * Return the cluster identified by the given ID.
 	 * 
 	 * @param clusterID
-	 * @return ClusandraKernel
+	 * @return MicroCluster
 	 * @throws Exception
 	 */
-	public ClusandraKernel getCluster(String clusterID) throws Exception {
+	public MicroCluster getCluster(String clusterID) throws Exception {
 
 		LOG.trace("getCluster: entered with this id [" + clusterID + "]");
 
@@ -278,7 +278,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 			return null;
 		}
 		List<SuperColumn> clusterSuperColumns = null;
-		ClusandraKernel clusandraKernel = null;
+		MicroCluster clusandraKernel = null;
 		try {
 			// Get the supercolumn that represents the cluster.
 			clusterSuperColumns = getSelector().getSuperColumnsFromRow(
@@ -300,10 +300,10 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	/**
 	 * Return the cluster with the given clusterID. 
 	 * @param clusterID
-	 * @return ClusandraKernel
+	 * @return MicroCluster
 	 * @throws Exception
 	 */
-	public ClusandraKernel getCluster(byte[] clusterID) throws Exception {
+	public MicroCluster getCluster(byte[] clusterID) throws Exception {
 		if(clusterID == null || clusterID.length == 0){
 			return null;
 		}
@@ -328,7 +328,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<ClusandraKernel> getClusters(String fromDate) throws Exception {
+	public List<MicroCluster> getClusters(String fromDate) throws Exception {
 		LOG.trace("getClusters: entered with this string [" + fromDate + "]");
 
 		long fromMills = DateUtils.validateDate(fromDate);
@@ -358,7 +358,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<ClusandraKernel> getClusters(String fromDate, String toDate)
+	public List<MicroCluster> getClusters(String fromDate, String toDate)
 			throws Exception {
 
 		LOG.trace("getClusters: entered with these strings [" + fromDate + "]["
@@ -388,7 +388,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<ClusandraKernel> getClusters(Calendar cal) throws Exception {
+	public List<MicroCluster> getClusters(Calendar cal) throws Exception {
 		return getClusters(cal, cal);
 	}
 
@@ -401,7 +401,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<ClusandraKernel> getClusters(Calendar fromCal, Calendar toCal)
+	public List<MicroCluster> getClusters(Calendar fromCal, Calendar toCal)
 			throws Exception {
 
 		// validate the specified time values
@@ -425,7 +425,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 *            the end of the time horizon
 	 * @return
 	 */
-	public List<ClusandraKernel> getClusters(long fromMills, long toMills)
+	public List<MicroCluster> getClusters(long fromMills, long toMills)
 			throws Exception {
 
 		LOG.trace("getClusters: entered with fromMills and toMills = ["
@@ -442,7 +442,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 
 		// Create an empty array list for the clusters that will be fetched from
 		// Cassandra
-		ArrayList<ClusandraKernel> clusters = new ArrayList<ClusandraKernel>();
+		ArrayList<MicroCluster> clusters = new ArrayList<MicroCluster>();
 
 		// dayMills is used to hold the mills for the day's zero hour. it is
 		// used as the row key into the cluster index table (CIT)
@@ -570,10 +570,10 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * 
 	 * @param cluKernels
 	 */
-	public void writeClusandraKernels(List<ClusandraKernel> cluKernels)
+	public void writeClusandraKernels(List<MicroCluster> cluKernels)
 			throws Exception {
 		if (cluKernels != null && !cluKernels.isEmpty()) {
-			for (ClusandraKernel cluKernel : cluKernels) {
+			for (MicroCluster cluKernel : cluKernels) {
 				writeClusandraKernel(cluKernel);
 			}
 		}
@@ -598,7 +598,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	}
 
 	/**
-	 * Write the cluster (ClusandraKernel) out to the data store. The cluster's
+	 * Write the cluster (MicroCluster) out to the data store. The cluster's
 	 * LAT parameter is used to nail the microcluster to the cluster index
 	 * table.
 	 * 
@@ -606,7 +606,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	 * 
 	 * @param cluKernels
 	 */
-	public void writeClusandraKernel(ClusandraKernel cluKernel)
+	public void writeClusandraKernel(MicroCluster cluKernel)
 			throws Exception {
 
 		// no need saving this one if it has already been saved.
@@ -623,43 +623,43 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 		mutator.writeSubColumn(
 				getClusterTable(),
 				rowKey,
-				ClusandraKernel.N_STR,
-				mutator.newColumn(ClusandraKernel.N_STR,
+				MicroCluster.N_STR,
+				mutator.newColumn(MicroCluster.N_STR,
 						Double.toString(cluKernel.getN())));
 
 		mutator.writeSubColumn(
 				getClusterTable(),
 				rowKey,
-				ClusandraKernel.LST_STR,
-				mutator.newColumn(ClusandraKernel.LST_STR,
+				MicroCluster.LST_STR,
+				mutator.newColumn(MicroCluster.LST_STR,
 						Double.toString(cluKernel.getLST())));
 
 		mutator.writeSubColumn(
 				getClusterTable(),
 				rowKey,
-				ClusandraKernel.SST_STR,
-				mutator.newColumn(ClusandraKernel.SST_STR,
+				MicroCluster.SST_STR,
+				mutator.newColumn(MicroCluster.SST_STR,
 						Double.toString(cluKernel.getSST())));
 
 		mutator.writeSubColumn(
 				getClusterTable(),
 				rowKey,
-				ClusandraKernel.CT_STR,
-				mutator.newColumn(ClusandraKernel.CT_STR,
+				MicroCluster.CT_STR,
+				mutator.newColumn(MicroCluster.CT_STR,
 						Double.toString(cluKernel.getCT())));
 
 		mutator.writeSubColumn(
 				getClusterTable(),
 				rowKey,
-				ClusandraKernel.LAT_STR,
-				mutator.newColumn(ClusandraKernel.LAT_STR,
+				MicroCluster.LAT_STR,
+				mutator.newColumn(MicroCluster.LAT_STR,
 						Double.toString(cluKernel.getLAT())));
 
 		mutator.writeSubColumn(
 				getClusterTable(),
 				rowKey,
-				ClusandraKernel.MAXRADIUS_STR,
-				mutator.newColumn(ClusandraKernel.MAXRADIUS_STR,
+				MicroCluster.MAXRADIUS_STR,
+				mutator.newColumn(MicroCluster.MAXRADIUS_STR,
 						Double.toString(cluKernel.getMaxRadius())));
 
 		// I am assuming the list cannot be reused until after the execute.
@@ -671,7 +671,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 					Double.toString(cluKernel.getLS()[i])));
 		}
 		mutator.writeSubColumns(getClusterTable(), rowKey,
-				ClusandraKernel.LS_STR, LSColumns);
+				MicroCluster.LS_STR, LSColumns);
 
 		List<Column> SSColumns = new ArrayList<Column>();
 		for (int i = 0; i < cluKernel.getSS().length; i++) {
@@ -679,7 +679,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 					Double.toString(cluKernel.getSS()[i])));
 		}
 		mutator.writeSubColumns(getClusterTable(), rowKey,
-				ClusandraKernel.SS_STR, SSColumns);
+				MicroCluster.SS_STR, SSColumns);
 
 		// This list of IDs (if any)
 		List<Column> IDLISTColumns = new ArrayList<Column>();
@@ -688,7 +688,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 					Bytes.fromByteArray(cluKernel.getIDLIST().get(i))));
 		}
 		mutator.writeSubColumns(getClusterTable(), rowKey,
-				ClusandraKernel.LISTID_STR, IDLISTColumns);
+				MicroCluster.LISTID_STR, IDLISTColumns);
 
 		// write the cluster to the data store
 		mutator.execute(getConsistencyLevel());
@@ -799,7 +799,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 	// in the list has subcolumns that are row keys into the cluster table.
 	// this method uses those row keys to create a collection of clusters.
 	private void getClusandraKernels(List<SuperColumn> superCols,
-			List<ClusandraKernel> cluKernels) throws Exception {
+			List<MicroCluster> cluKernels) throws Exception {
 
 		if (superCols == null || superCols.isEmpty() || cluKernels == null) {
 			return;
@@ -815,7 +815,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 				// (index) into the cluster table. so we use each subcolumn to
 				// index into the cluster table and fetch the corresponding
 				// list of supercolumns that represents a cluster and from
-				// that we create a cluster (ClusandraKernel). We also use
+				// that we create a cluster (MicroCluster). We also use
 				// the kernel tracker to eliminate duplicates.
 				String clusterID = new String(col.getName());
 				if (!kernelTracker.containsKey(clusterID)) {
@@ -824,7 +824,7 @@ public class ClusandraDao extends CassandraDao implements InitializingBean {
 							.getSuperColumnsFromRow(getClusterTable(),
 									clusterID, false, getConsistencyLevel());
 					// from the list of supercolumns, create a cluster
-					// (ClusandraKernel) and add it to the list of clusters
+					// (MicroCluster) and add it to the list of clusters
 					// that we're going to return
 					if (clusterSuperColumns != null
 							&& !clusterSuperColumns.isEmpty()) {

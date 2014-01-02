@@ -19,7 +19,7 @@
  * $Date: 2011-11-15 17:05:43 -0500 (Tue, 15 Nov 2011) $
  * $Revision: 174 $
  * $Author: jose $
- * $Id: ClusandraKernel.java 174 2011-11-15 22:05:43Z jose $
+ * $Id: MicroCluster.java 174 2011-11-15 22:05:43Z jose $
  */
 package clusandra.clusterers;
 
@@ -41,8 +41,8 @@ import java.util.Formatter;
 
 /**
  * This class represents a CluSandra cluster. If the IDLIST is empty, then it is
- * a Microcluster, else it is a Super Macro Cluster. All clusters are stored
- * in Cassandra. 
+ * a Microcluster, else it is a Super Macro Cluster. All clusters are stored in
+ * Cassandra.
  * 
  * Based on micro cluster, as defined by Aggarwal et al, On Clustering Massive
  * Data Streams: A Summarization Praradigm in the book Data streams : models and
@@ -55,10 +55,9 @@ import java.util.Formatter;
  *           (Germany)}, }
  * 
  */
-public class ClusandraKernel implements Comparable<ClusandraKernel>,
-		Serializable {
+public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 
-	private static final Log LOG = LogFactory.getLog(ClusandraKernel.class);
+	private static final Log LOG = LogFactory.getLog(MicroCluster.class);
 
 	private static final long serialVersionUID = 4245730038375465162L;
 	private static final double EPSILON = 0.00005;
@@ -138,7 +137,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param record
 	 *            initial DataRecord for this cluster
 	 */
-	public ClusandraKernel(DataRecord record) {
+	public MicroCluster(DataRecord record) {
 		this(record, record.numAttributes(), record.getTimestamp());
 	}
 
@@ -149,12 +148,12 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param record
 	 *            initial DataRecord for this cluster
 	 */
-	public ClusandraKernel(DataRecord record, double maxRadius) {
+	public MicroCluster(DataRecord record, double maxRadius) {
 		this(record, record.numAttributes(), record.getTimestamp());
 		this.maxRadius = maxRadius;
 	}
 
-	public ClusandraKernel(DataRecord record, int dimensions, double timestamp) {
+	public MicroCluster(DataRecord record, int dimensions, double timestamp) {
 		this(record.toDoubleArray(), dimensions);
 		CT = timestamp;
 		LAT = timestamp;
@@ -168,7 +167,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * 
 	 * @param cluster
 	 */
-	public ClusandraKernel(ClusandraKernel cluster) {
+	public MicroCluster(MicroCluster cluster) {
 		N = cluster.N;
 		LS = Arrays.copyOf(cluster.LS, cluster.LS.length);
 		SS = Arrays.copyOf(cluster.SS, cluster.SS.length);
@@ -186,12 +185,12 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * 
 	 * @param dimensions
 	 */
-	public ClusandraKernel(int dimensions) {
+	public MicroCluster(int dimensions) {
 		LS = new double[dimensions];
 		SS = new double[dimensions];
 	}
 
-	public ClusandraKernel(double[] center, int dimensions) {
+	public MicroCluster(double[] center, int dimensions) {
 		N = 1;
 		LS = center.clone();
 		SS = new double[dimensions];
@@ -463,7 +462,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	}
 
 	/**
-	 * Absorb the provided DataRecord
+	 * Absorb the given DataRecord
 	 * 
 	 * @param record
 	 */
@@ -484,7 +483,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * 
 	 * @param cluster
 	 */
-	public synchronized void add(ClusandraKernel cluster) throws Exception {
+	public synchronized void add(MicroCluster cluster) throws Exception {
 		if (cluster.isSuper()) {
 			throw new Exception("cannot add supercluster");
 		}
@@ -497,7 +496,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * 
 	 * @param cluster
 	 */
-	public synchronized void merge(ClusandraKernel cluster) {
+	public synchronized void merge(MicroCluster cluster) {
 		if (cluster.CT < CT) {
 			CT = cluster.CT;
 		}
@@ -530,27 +529,12 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * The radius is the cluster's standard deviation (average distance of all
 	 * absorbed DataRecords from mean).
 	 * 
-	 * Design note: the radius should have a maximum boundary. The max boundary
-	 * defines what is to be considered 'similar' with respect to the given data
-	 * set.
-	 * 
 	 * @return radius or root mean squared deviation (RMSD)
 	 */
 	public synchronized double getRadius() {
-		double radius = getTrueRadius();
-		return (radius == 0) ? getMaxRadius() : radius;
-	}
-
-	/**
-	 * Get the true radius for this cluster.
-	 * 
-	 * radius factor
-	 * 
-	 * @return radius or root mean squared deviation (RMSD)
-	 */
-	public synchronized double getTrueRadius() {
 		return (N == 1) ? 0.0 : getDeviation();
 	}
+
 
 	/**
 	 * Returns true if the passed in cluster is the same, ID-wise, as this
@@ -559,7 +543,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param cluster
 	 * @return
 	 */
-	public boolean same(ClusandraKernel cluster) {
+	public boolean same(MicroCluster cluster) {
 		return getID().equals(cluster.getID());
 
 	}
@@ -584,7 +568,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 		return radiusFactor;
 	}
 
-	public synchronized void subtract(ClusandraKernel cluster) {
+	public synchronized void subtract(MicroCluster cluster) {
 		// TBD
 	}
 
@@ -601,12 +585,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 		if (point == null || point.length != center.length) {
 			return Double.MAX_VALUE;
 		}
-		double res = 0.0;
-		for (int i = 0; i < center.length; i++) {
-			res += Math.pow((center[i] - point[i]), 2);
-		}
-		return Math.sqrt(res);
-
+		return getDistance(center, point);
 	}
 
 	/**
@@ -665,12 +644,12 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param expireTime
 	 * @return
 	 */
-	public boolean withinTimeHorizon(ClusandraKernel other, double expireTime) {
+	public boolean withinTimeHorizon(MicroCluster other, double expireTime) {
 
 		// first determine clusters that has lived closest to and farthest from
 		// present time.
-		ClusandraKernel closest;
-		ClusandraKernel farthest;
+		MicroCluster closest;
+		MicroCluster farthest;
 
 		if (other.getLAT() >= getLAT()) {
 			closest = other;
@@ -699,7 +678,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param other
 	 * @return
 	 */
-	public boolean compare(ClusandraKernel other) {
+	public boolean compare(MicroCluster other) {
 
 		if (getCT() != other.getCT()) {
 			return false;
@@ -756,9 +735,9 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	}
 
 	/**
-	 * This method is used by the CQL to sort a list of ClusandraKernel objects.
+	 * This method is used by the CQL to sort a list of MicroCluster objects.
 	 */
-	public int compareTo(ClusandraKernel other) {
+	public int compareTo(MicroCluster other) {
 		// the order of the sorting can be ascending or descending. the default
 		// is ascending
 		switch (sortField) {
@@ -825,7 +804,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param clusters
 	 * @return
 	 */
-	public static double getDensity(List<ClusandraKernel> clusters) {
+	public static double getDensity(List<MicroCluster> clusters) {
 		double distance = 0.0;
 		double distanceCounter = 0;
 
@@ -833,9 +812,9 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 			return distance;
 		}
 		for (int i = 0; i < clusters.size(); i++) {
-			ClusandraKernel source = clusters.get(i);
+			MicroCluster source = clusters.get(i);
 			for (int j = i + 1; j < clusters.size(); j++) {
-				ClusandraKernel target = clusters.get(j);
+				MicroCluster target = clusters.get(j);
 				distance += getDistance(source.getCenter(), target.getCenter());
 				distanceCounter++;
 			}
@@ -860,7 +839,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param target
 	 * @return true if the two clusters temporally overlap
 	 */
-	public boolean temporalOverlap(ClusandraKernel target) {
+	public boolean temporalOverlap(MicroCluster target) {
 		if ((getCT() >= target.getCT() && getCT() <= target.getLAT())
 				|| (getLAT() >= target.getCT() && getLAT() <= target.getLAT())) {
 			return true;
@@ -875,10 +854,11 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 * @param overlapFactor
 	 * @return true if this cluster overlaps the given cluster
 	 */
-	public boolean spatialOverlap(ClusandraKernel target, double overlapFactor) {
+	public boolean spatialOverlap(MicroCluster target, double overlapFactor) {
 		double sR = overlapFactor * getRadius();
 		double tR = overlapFactor * target.getRadius();
 		double dist = getDistance(target.getCenter());
+		//System.out.println("sR, tR, dist = " + sR + ", " + tR + ", " + dist);
 		return (((sR + tR) - dist) > 0);
 	}
 
@@ -897,8 +877,8 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 
 	/**
 	 * * This method is passed a list of supercolumns that represent a cluster
-	 * (i.e.,ClusandraKernel). From the supercolumns, it creates and returns a
-	 * ClusandraKernel.
+	 * (i.e.,MicroCluster). From the supercolumns, it creates and returns a
+	 * MicroCluster.
 	 * 
 	 * @param cluster
 	 * @param clusterID
@@ -906,7 +886,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 	 *            key
 	 * @return
 	 */
-	public static ClusandraKernel getClusandraKernel(List<SuperColumn> cluster,
+	public static MicroCluster getClusandraKernel(List<SuperColumn> cluster,
 			String clusterID) {
 
 		// The elements of a cluster
@@ -978,7 +958,7 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 		}
 
 		// now we can create a cluster
-		ClusandraKernel clusKernel = new ClusandraKernel(new DataRecord(LS));
+		MicroCluster clusKernel = new MicroCluster(new DataRecord(LS));
 		clusKernel.setID(clusterID);
 		clusKernel.setN(N);
 		clusKernel.setSS(SS);
@@ -1065,9 +1045,9 @@ public class ClusandraKernel implements Comparable<ClusandraKernel>,
 		// d3[4] = 8;
 
 		// Create a cluster from d1, then have it absorb the others
-		ClusandraKernel c1 = new ClusandraKernel(new DataRecord(d1));
-		ClusandraKernel c2 = new ClusandraKernel(new DataRecord(d2));
-		ClusandraKernel c3 = new ClusandraKernel(c1);
+		MicroCluster c1 = new MicroCluster(new DataRecord(d1));
+		MicroCluster c2 = new MicroCluster(new DataRecord(d2));
+		MicroCluster c3 = new MicroCluster(c1);
 		c3.add(c2);
 		System.out.println("isSuper() returns " + c3.isSuper());
 

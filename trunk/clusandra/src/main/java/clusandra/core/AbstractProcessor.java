@@ -25,7 +25,6 @@
 package clusandra.core;
 
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.BeanNameAware;
@@ -36,10 +35,6 @@ public abstract class AbstractProcessor implements Processor, InitializingBean,
 	private QueueAgent queueAgent;
 	private String beanName;
 
-	/**
-	 * Must be implemented by the subclass
-	 */
-	public abstract void setConfig(Map<String, String> map) throws Exception;
 
 	/**
 	 * Needs to be implemented by the subclass

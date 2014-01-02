@@ -30,7 +30,7 @@ import static clusandra.cql.CqlMain.sessionState;
 import static clusandra.cql.CqlMain.cassyCluster;
 import static clusandra.cql.CqlMain.cassyDao;
 import static clusandra.cql.CqlSelect.COMMA;
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 
 import clusandra.cassandra.ClusandraDao;
 
@@ -103,8 +103,8 @@ public class CqlDistance {
 			return;
 		}
 
-		ClusandraKernel c1 = null;
-		ClusandraKernel c2 = null;
+		MicroCluster c1 = null;
+		MicroCluster c2 = null;
 		try {
 			c1 = cassyDao.getCluster(clstr1ID);
 			c2 = cassyDao.getCluster(clstr2ID);

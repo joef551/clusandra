@@ -50,7 +50,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.TimeZone;
 
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 
 /**
  * <p>

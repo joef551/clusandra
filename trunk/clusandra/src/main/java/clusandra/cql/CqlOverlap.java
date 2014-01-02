@@ -39,7 +39,7 @@ import static clusandra.cql.CqlSelect.reset;
 import static clusandra.cql.CqlSelect.markProject;
 import static clusandra.cql.CqlSelect.startDate;
 import static clusandra.cql.CqlSelect.endDate;
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 
 /**
  * CluSandra Query Language (CQL) Overlap
@@ -102,7 +102,7 @@ public class CqlOverlap {
 			endDate = startDate;
 		}
 
-		List<ClusandraKernel> clusters = null;
+		List<MicroCluster> clusters = null;
 		try {
 			if (startDate != null) {
 				clusters = cassyDao.getClusters(startDate, endDate);
@@ -126,12 +126,12 @@ public class CqlOverlap {
 		int clusterCnt = clusters.size();
 		for (int i = 0; i < clusterCnt; i++) {
 			if (clusters.get(i).getProject()) {
-				ClusandraKernel c1 = clusters.get(i);
+				MicroCluster c1 = clusters.get(i);
 				String c1ShortId = c1.getID().substring(0,
 						c1.getID().indexOf('-'));
 				for (int j = i + 1; j < clusterCnt; j++) {
 					if (clusters.get(j).getProject()) {
-						ClusandraKernel c2 = clusters.get(j);
+						MicroCluster c2 = clusters.get(j);
 						String c2ShortId = c2.getID().substring(0,
 								c2.getID().indexOf('-'));
 						double sumRadius = c1.getRadius() + c2.getRadius();

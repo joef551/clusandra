@@ -32,6 +32,7 @@ import org.apache.commons.logging.LogFactory;
 
 import clusandra.clusterers.DataRecord;
 import clusandra.core.QueueAgent;
+import clusandra.core.AbstractProcessor;
 
 /**
  * This is a test StreamGenerator that works off the 1999 KDD Cup data set.
@@ -54,7 +55,7 @@ import clusandra.core.QueueAgent;
  * @author jfernandez
  * 
  */
-public class KddStreamGenerator implements StreamGenerator {
+public class KddStreamGenerator extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(KddStreamGenerator.class);
 
@@ -158,25 +159,6 @@ public class KddStreamGenerator implements StreamGenerator {
 	}
 
 	/**
-	 * Invoked by Spring to set the QueueAgent for this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public void setQueueAgent(QueueAgent queueAgent) {
-		this.queueAgent = queueAgent;
-
-	}
-
-	/**
-	 * Returns the QueueAgent that is wired to this StreamGenerator.
-	 * 
-	 * @param map
-	 */
-	public QueueAgent getQueueAgent() {
-		return queueAgent;
-	}
-
-	/**
 	 * Set the name (including path) of the kdd data set to use.
 	 * 
 	 * @param kddFileName
@@ -198,7 +180,7 @@ public class KddStreamGenerator implements StreamGenerator {
 	 * This method is invoked by the QueueAgent to start and give control to the
 	 * StreamGenerator.
 	 */
-	public void startGenerator() throws Exception {
+	public void produceCluMessages() throws Exception {
 		double sampleCnt = 0L;
 		String[] s1 = null;
 

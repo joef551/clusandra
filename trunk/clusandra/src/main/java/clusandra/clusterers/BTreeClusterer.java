@@ -23,8 +23,8 @@
  */
 package clusandra.clusterers;
 
-import java.util.Map;
 import java.util.List;
+import java.util.ArrayList;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -84,48 +84,12 @@ public class BTreeClusterer extends AbstractProcessor {
 	// the BTree used by this clusterer
 	private BTree bTree;
 
-	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// ~~~~~~~~~~~~~ This Algorithm's Configurable Properties ~~~~~~~~~~~~
-	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// the amount of time a microcluster is allowed to remain active without
-	// absorbing a Datarecord
-	private static final String overlapFactorKey = "overlapFactor";
-	private static final String sparseFactorKey = "sparseFactor";
-	private static final String lambdaKey = "lambda";
-	private static final String maxEntriesKey = "maxEntries";
-
 	public BTreeClusterer() {
 	}
 
 	public BTreeClusterer(BTree bTree) {
 		super();
 		this.bTree = bTree;
-	}
-
-	/**
-	 * Invoked by Spring to set the Map that contains configuration parameters
-	 * for this Clusterer.
-	 * 
-	 * @param map
-	 */
-	public void setConfig(Map<String, String> map) throws Exception {
-		for (String key : map.keySet()) {
-			if (overlapFactorKey.equals(key)) {
-				setOverlapFactor(map.get(key));
-				LOG.trace("setConfig:cluster overlapFactor = "
-						+ getOverlapFactor());
-			} else if (sparseFactorKey.equals(key)) {
-				setSparseFactor(map.get(key));
-				LOG.trace("setConfig:cluster sparseFactor = "
-						+ getSparseFactor());
-			} else if (lambdaKey.equals(key)) {
-				setLambda(map.get(key));
-				LOG.trace("lambda = " + getLambda());
-			} else if (maxEntriesKey.equals(key)) {
-				setMaxEntries(map.get(key));
-				LOG.trace("maxEntries = " + getMaxEntries());
-			}
-		}
 	}
 
 	/**
@@ -138,22 +102,12 @@ public class BTreeClusterer extends AbstractProcessor {
 	}
 
 	/**
-	 * Set the BTree for this clusterer
+	 * Get the BTree for this clusterer
 	 * 
 	 * @param bTree
 	 */
 	public BTree getBTree() {
 		return bTree;
-	}
-
-	/**
-	 * Called by setConfig() to set the cluster overlap factor.
-	 * 
-	 * @param overlapFactor
-	 * @throws Exception
-	 */
-	public void setOverlapFactor(String overlapFactor) throws Exception {
-		setOverlapFactor(Double.parseDouble(overlapFactor));
 	}
 
 	public void setOverlapFactor(double overlapFactor)
@@ -166,46 +120,16 @@ public class BTreeClusterer extends AbstractProcessor {
 		this.overlapFactor = overlapFactor;
 	}
 
-	/**
-	 * Returns the cluster overlap factor being used.
-	 * 
-	 * @return
-	 */
 	public double getOverlapFactor() {
 		return overlapFactor;
-	}
-
-	/**
-	 * Called by setConfig() to set the max number of entries in each tree node.
-	 * 
-	 * @param overlapFactor
-	 * @throws Exception
-	 */
-	public void setMaxEntries(String maxEntries) throws Exception {
-		setMaxEntries(Integer.parseInt(maxEntries));
 	}
 
 	public void setMaxEntries(int maxEntries) throws IllegalArgumentException {
 		this.maxEntries = maxEntries;
 	}
 
-	/**
-	 * Returns the max number of entries per tree node.
-	 * 
-	 * @return
-	 */
 	public int getMaxEntries() {
 		return maxEntries;
-	}
-
-	/**
-	 * Called by setConfig() to set the cluster sparse factor.
-	 * 
-	 * @param sparseFactor
-	 * @throws Exception
-	 */
-	public void setSparseFactor(String sparseFactor) throws Exception {
-		setSparseFactor(Double.parseDouble(sparseFactor));
 	}
 
 	public void setSparseFactor(double sparseFactor)
@@ -218,24 +142,8 @@ public class BTreeClusterer extends AbstractProcessor {
 		this.sparseFactor = sparseFactor;
 	}
 
-	/**
-	 * Returns the cluster sparse factor being used.
-	 * 
-	 * @return
-	 */
 	public double getSparseFactor() {
 		return sparseFactor;
-	}
-
-	/**
-	 * Called by setConfig() to set the cluster lambda value for density
-	 * calculations.
-	 * 
-	 * @param lambda
-	 * @throws Exception
-	 */
-	public void setLambda(String lambda) throws Exception {
-		setLambda(Double.parseDouble(lambda));
 	}
 
 	public void setLambda(double lambda) throws IllegalArgumentException {
@@ -247,11 +155,6 @@ public class BTreeClusterer extends AbstractProcessor {
 		this.lambda = lambda;
 	}
 
-	/**
-	 * Returns the lambda value for density calculations.
-	 * 
-	 * @return
-	 */
 	public double getLambda() {
 		return lambda;
 	}
@@ -273,36 +176,14 @@ public class BTreeClusterer extends AbstractProcessor {
 	}
 
 	/**
-	 * Called by QueueAgent to initialize this Clusterer.
-	 */
-	public boolean initialize() throws Exception {
-		if (getQueueAgent() == null) {
-			throw new Exception(
-					"this clusterer has not been wired to a QueueAgent");
-		} else if (getQueueAgent().getJmsReadDestination() == null) {
-			throw new Exception(
-					"this clusterer has not been wired to a JmsReadDestination");
-		} else if (getQueueAgent().getJmsReadTemplate() == null) {
-			throw new Exception(
-					"this clusterer has not been wired to a JmsReadTemplate");
-		} else if (getClusandraDao() == null) {
-			/*
-			 * Disable this for now
-			 * 
-			 * throw new Exception(
-			 * "this clusterer has not been wired to a ClusandraDao");
-			 */
-		}
-		return true;
-	}
-
-	/**
 	 * Called by the QueueAgent to give the Clusterer a collection of
 	 * micro-clusters to insert into the BTree.
 	 * 
 	 * @param cluMessages
 	 * @throws Exception
 	 */
+	List<MicroCluster> debugList = new ArrayList<MicroCluster>();
+
 	public void processCluMessages(List<CluMessage> cluMessages)
 			throws Exception {
 
@@ -314,15 +195,17 @@ public class BTreeClusterer extends AbstractProcessor {
 			return;
 		}
 
-		if (!(cluMessages.get(0).getBody() instanceof ClusandraKernel)) {
-			LOG.error("processCluMessages: object is not of type ClusandraKernel");
+		LOG.debug("processCluMessages: received this many CluMessages: "
+				+ cluMessages.size());
+
+		if (!(cluMessages.get(0).getBody() instanceof MicroCluster)) {
+			LOG.error("processCluMessages: object is not of type MicroCluster");
 			throw new Exception(
-					"processCluMessages: object is not of type ClusandraKernel");
+					"processCluMessages: object is not of type MicroCluster");
 		}
 
 		// peek at the clusters
-		ClusandraKernel cluster = (ClusandraKernel) cluMessages.get(0)
-				.getBody();
+		MicroCluster cluster = (MicroCluster) cluMessages.get(0).getBody();
 
 		if (getBTree() != null) {
 			if (cluster.getCenter().length != getBTree().getNumDims()) {
@@ -342,7 +225,7 @@ public class BTreeClusterer extends AbstractProcessor {
 		try {
 			getBTree().lock();
 			for (CluMessage cluMessage : cluMessages) {
-				cluster = (ClusandraKernel) cluMessage.getBody();
+				cluster = (MicroCluster) cluMessage.getBody();
 				getBTree().insert(cluster);
 			}
 		} finally {

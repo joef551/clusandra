@@ -11,18 +11,18 @@ import java.util.List;
  * @author jfernandez
  * 
  */
-public class KmeansKernel extends ClusandraKernel {
+public class KmeansCluster {
 
 	private static final long serialVersionUID = -6927185445156513561L;
 
-	protected transient double[] currentLocation;
+	private transient double[] currentLocation;
 	private transient double[] meanLocation;
-	protected transient double[] runningTotalForMean;
+	private transient double[] runningTotalForMean;
 
 	// this cluster's nearest neighbor
-	protected transient KmeansKernel NN = null;
+	private transient KmeansCluster NN = null;
 	// the distance to this cluster's nearest neighbor
-	protected transient double distNN = 0;
+	private transient double distNN = 0;
 
 	// if a point is added or removed from this
 	// cluster, then its mean will have to be
@@ -30,12 +30,12 @@ public class KmeansKernel extends ClusandraKernel {
 	private transient boolean updateMean;
 
 	// the set of points (DataRecords) assigned to this cluster
-	protected transient List<DataRecord> points = new LinkedList<DataRecord>();
+	private transient List<DataRecord> points = new LinkedList<DataRecord>();
 
 	// how far has the cluster drifted from its prior spot
-	protected transient double driftDistance = Double.MAX_VALUE;
-	
-	private transient double tmpRadius;
+	private transient double driftDistance = Double.MAX_VALUE;
+
+	private transient double radius;
 
 	/**
 	 * Create a cluster based on given DataRecord. Note that the
@@ -45,8 +45,7 @@ public class KmeansKernel extends ClusandraKernel {
 	 * @param record
 	 *            initial DataRecord for this cluster
 	 */
-	public KmeansKernel(DataRecord record) {
-		super(record.numAttributes());
+	public KmeansCluster(DataRecord record) {
 		currentLocation = record.toDoubleArray();
 		meanLocation = new double[currentLocation.length];
 		runningTotalForMean = new double[currentLocation.length];
@@ -58,7 +57,7 @@ public class KmeansKernel extends ClusandraKernel {
 	 * @param cluster
 	 * @return
 	 */
-	public boolean merge(KmeansKernel cluster) {
+	public boolean merge(KmeansCluster cluster) {
 		if (cluster == null || cluster.getPoints() == null
 				|| cluster.getPoints().size() == 0) {
 			return false;
@@ -109,9 +108,14 @@ public class KmeansKernel extends ClusandraKernel {
 		return meanLocation;
 	}
 
+	/**
+	 * Return the distance from this cluster to the given point.
+	 * 
+	 * @param point
+	 * @return
+	 */
 	public double getDistance(DataRecord point) {
-		return ClusandraKernel
-				.getDistance(getLocation(), point.toDoubleArray());
+		return MicroCluster.getDistance(getLocation(), point.toDoubleArray());
 	}
 
 	public double getDriftDistance() {
@@ -124,7 +128,8 @@ public class KmeansKernel extends ClusandraKernel {
 
 	public void removePoint(DataRecord point) {
 		if (points.remove(point)) {
-			subArrays(runningTotalForMean, point.toDoubleArray());
+			KmeansClusterer.subArrays(runningTotalForMean,
+					point.toDoubleArray());
 			updateMean = true;
 		}
 	}
@@ -134,7 +139,7 @@ public class KmeansKernel extends ClusandraKernel {
 		point.setKmeansKernel(this);
 		// update the running total used to
 		// return the mean
-		sumArrays(runningTotalForMean, point.toDoubleArray());
+		KmeansClusterer.sumArrays(runningTotalForMean, point.toDoubleArray());
 		updateMean = true;
 	}
 
@@ -158,11 +163,11 @@ public class KmeansKernel extends ClusandraKernel {
 	 * 
 	 * @param NN
 	 */
-	public void setNN(KmeansKernel NN) {
+	public void setNN(KmeansCluster NN) {
 		this.NN = NN;
 	}
 
-	public KmeansKernel getNN() {
+	public KmeansCluster getNN() {
 		return NN;
 	}
 
@@ -189,42 +194,12 @@ public class KmeansKernel extends ClusandraKernel {
 		driftDistance = Double.MAX_VALUE;
 	}
 
-	/**
-	 * Flushes all the points to the micro-cluster. This method essentially
-	 * initializes or creates the micro-cluster.
-	 * 
-	 */
-	protected void initMicro() {
-		// first sort the list of data records in ascending timestamp order
-		Collections.sort(points);
-		// have the creation time of the cluster be the timestamp of the
-		// oldest point in the group being clustered together
-		setCT(points.get(0).getTimestamp());
-		// now absorb all the points
-		for (DataRecord point : points) {
-			absorb(point);
-		}
-		reset();
+	public double getRadius() {
+		return radius;
 	}
 
-	private static void sumArrays(double[] valsA, double[] valsB) {
-		for (int i = 0; i < valsA.length; i++) {
-			valsA[i] += valsB[i];
-		}
-	}
-
-	private static void subArrays(double[] valsA, double[] valsB) {
-		for (int i = 0; i < valsA.length; i++) {
-			valsA[i] -= valsB[i];
-		}
-	}
-
-	public double getTmpRadius() {
-		return tmpRadius;
-	}
-
-	public void setTmpRadius(double tmpRadius) {
-		this.tmpRadius = tmpRadius;
+	public void setRadius(double tmpRadius) {
+		this.radius = tmpRadius;
 	}
 
 }

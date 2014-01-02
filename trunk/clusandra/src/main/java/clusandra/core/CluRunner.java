@@ -92,9 +92,12 @@ public class CluRunner {
 			// Read all the CluRunnable beans and invoke their cluRun() method
 			Map<String, CluRunnable> runnables = applContext
 					.getBeansOfType(CluRunnable.class);
+
 			if (runnables != null && !runnables.isEmpty()) {
 				doneSignal = new CountDownLatch(runnables.size());
 				for (CluRunnable runnable : runnables.values()) {
+					LOG.debug("CluRunner: starting this runner: "
+							+ runnable.getName());
 					runnable.cluRun(startSignal, doneSignal);
 				}
 				// let all threads proceed

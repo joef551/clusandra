@@ -17,11 +17,8 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 		<property name="streamReader" ref="kddReader" />
 	</bean>
 
-	<!-- The KDD Stream Reader reads data records from the 1999 KDD Cup Data 
-		Set and sends them on to a clusterer via the queueing system. -->
 	<bean id="kddReader" class="clusandra.stream.IncrementalStreamer">
 		<property name="queueAgent" ref="queueAgent" />
-		<!-- A map of configuration key-value pairs for this StreamReader -->
 	</bean>
 
 	<!-- The connection factory for the JMS provider -->

@@ -30,7 +30,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 import static clusandra.utils.DateUtils.getClusandraDate;
 
 /**
@@ -68,7 +68,7 @@ import static clusandra.utils.DateUtils.getClusandraDate;
  * 
  * This class is not thread-safe.
  * 
- * @param <ClusandraKernel>
+ * @param <MicroCluster>
  *            the type of entry to store in this BTree.
  */
 public class BTree implements Runnable {
@@ -103,16 +103,8 @@ public class BTree implements Runnable {
 	// used for synchronizing access to the tree
 	private final ReentrantLock myLock = new ReentrantLock();
 
-	// records last time of tree insertion
-	private long lastClean = 0L;
-
 	// the back ground thread that periodically cleans the treee
 	private Thread runner;
-
-	// three vars used for diagnostics/reporting purposes
-	private int numNodes = 0;
-	private int numLeaves = 0;
-	private int numClusters = 0;
 
 	/**
 	 * TODO: Need to give BTree a CassandraDao so that it can persist
@@ -129,20 +121,20 @@ public class BTree implements Runnable {
 	 *            the number of dimensions of the CFTree.
 	 */
 	public BTree(int maxEntries, int numDims) {
-		this();
+		//this();
 		this.maxEntries = maxEntries;
 		this.numDims = numDims;
 		root = buildRoot(true);
 	}
 
 	/**
-	 * Builds a new CFTree using default settings. TODO: This constructor does
+	 * Builds a new BTree using default settings. TODO: This constructor does
 	 * not call buildRoot
 	 */
 	public BTree() {
-		// runner = new Thread(this, "BTree thread: ");
-		// runner.setDaemon(true);
-		// runner.start();
+		runner = new Thread(this, "BTree thread: ");
+		runner.setDaemon(true);
+		runner.start();
 	}
 
 	/**
@@ -261,22 +253,36 @@ public class BTree implements Runnable {
 	 */
 	private void condenseTree(Node n) {
 		if (n == root) {
+			// we're at the top of the tree
 			if (root.isEmpty()) {
-				root = buildRoot(true);
+				if (!root.isLeaf()) {
+					leaves.add(root);
+					root.leaf = true;
+				}
+				root.clearCenter();
 			} else if (root.size() == 1 && !root.leaf) {
-				root = root.children.get(0);
+				root = root.children.getFirst();
 				root.parent = null;
 			}
 			return;
 		}
-		if (n.isEmpty()) {
-			n.parent.removeChild(n);
+		// if the node is not empty, then there is no need to proceed any
+		// further
+		else if (!n.isEmpty()) {
+			return;
 		}
+		// the node is empty, so remove it from its parent
+		n.parent.removeChild(n);
+		// if this was a leaf, then remove it from the leaves index
+		if (n.isLeaf()) {
+			leaves.remove(n);
+		}
+		// and check the parent
 		condenseTree(n.parent);
 	}
 
 	/**
-	 * Empties the CFTree
+	 * Empties the BTree
 	 */
 	public void clear() {
 		try {
@@ -291,13 +297,14 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * Inserts the given cluster into the CTree.
+	 * Inserts the given cluster into the BTree.
 	 * 
 	 * @param cluster
 	 */
-	public void insert(ClusandraKernel cluster) {
+	public void insert(MicroCluster cluster) {
 
 		LOG.debug("insert: entered with tree size = " + size);
+		LOG.debug("insert: given cluster's size = " + cluster.getN());
 
 		// first, find the closest leaf to this cluster; start from the root
 		// node. The chooseLeaf method will update the center and N value of
@@ -312,9 +319,10 @@ public class BTree implements Runnable {
 		// contain many children.
 		if (!leaf.isEmpty()) {
 
-			LOG.debug("insert: leaf node has this many entries " + leaf.size());
+			LOG.debug("insert: leaf node has this many micro-clusters "
+					+ leaf.size());
 
-			// first find the closest entry (cluster). restrict the search to
+			// first find the closest cluster. restrict the search to
 			// only those microclusters that are temporally relevant to the
 			// given microcluster
 			double minDist = Double.MAX_VALUE;
@@ -329,15 +337,32 @@ public class BTree implements Runnable {
 				}
 			}
 
-			// Do the two clusters spatially overlap?
-			if (entry != null
-					&& cluster
-							.spatialOverlap(entry.cluster, getOverlapFactor())) {
-				LOG.debug("insert: two microclusters spatially overlap");
-				entry.absorb(cluster);
-				// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
-				// CASSANDRA
-				return;
+			// if the cluster only has one point, then its either an outlier
+			// or an orphan
+			if (entry != null && cluster.getN() == 1) {
+				// if it is within 2 standard deviations, then consider it
+				// an orphan
+				double radius = entry.cluster.getRadius() * 2;
+				LOG.debug("insert: procesing outlier or orphan, "
+						+ "minDist and radius = " + minDist + ", " + radius);
+				if (minDist <= radius) {
+					LOG.debug("insert: found home for orphan");
+					entry.absorb(cluster);
+					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+					// CASSANDRA
+					return;
+				}
+			} else {
+				// Do the two clusters spatially overlap?
+				if (entry != null
+						&& cluster.spatialOverlap(entry.cluster,
+								getOverlapFactor())) {
+					LOG.debug("insert: two microclusters spatially overlap");
+					entry.absorb(cluster);
+					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+					// CASSANDRA
+					return;
+				}
 			}
 
 			// determine if there is any entry in the leaf that is no
@@ -347,6 +372,7 @@ public class BTree implements Runnable {
 			for (Node child : leaf.getChildren()) {
 				entry = (Entry) child;
 				if (!entry.isRelevant(cluster.getLST() / cluster.getN())) {
+					LOG.debug("insert: replacing irrelevant entry");
 					entry.remove();
 					entry.parent.addChild(new Entry(cluster));
 					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
@@ -359,21 +385,21 @@ public class BTree implements Runnable {
 			LOG.debug("insert: leaf node is empty");
 		}
 
-		// add the entry to the tree
+		// add an Entry to the Leaf node; an Entry node is hosted only by Leaf
+		// nodes and encapsulates a MicroCluster
 		entry = new Entry(cluster);
 		leaf.addChild(entry);
 		size++;
-		entry.parent = leaf;
 		LOG.debug("insert: adding micro cluster, tree size = " + size);
 		LOG.debug("insert: leaf size  = " + leaf.size());
-		// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+
+		// YOU NOW HAVE TO WRITE THE NEWLY ENTERED ENTRY'S CLUSTER OUT TO
 		// CASSANDRA
-		if (leaf.size() > maxEntries) {
+
+		// if the leaf has gotten too big, then split it
+		if (leaf.size() > getMaxEntries()) {
 			Node[] splits = splitNode(leaf);
 			adjustTree(splits[0], splits[1]);
-		} else {
-			// why are we doing this?!
-			adjustTree(leaf, null);
 		}
 	}
 
@@ -386,15 +412,11 @@ public class BTree implements Runnable {
 	 * @return
 	 */
 	public String printStats() {
-		numNodes = 0;
-		numLeaves = 0;
-		numClusters = 0;
-		printStats(root);
+		setNumNodes(root);
 		return new String("\nnumber of nodes in tree = " + numNodes + "\n"
-				+ "number of leaves in tree = " + numLeaves + "\n"
 				+ "number of leaves in list = " + leaves.size() + "\n"
-				+ "number of clusters in tree = " + numClusters + "\n"
-				+ "trees size = " + size + "\n");
+				+ "number of clusters in tree = " + getNumClusters() + "\n"
+				+ "number of clusters in tree = " + size + "\n");
 	}
 
 	/**
@@ -403,19 +425,16 @@ public class BTree implements Runnable {
 	 */
 	public void run() {
 
-		LOG.trace(runner.getName() + ": btree clean thread has started");
+		// records last time of tree insertion
+		long lastClean = 0L;
+
+		LOG.trace(runner.getName() + ": started");
 
 		while (true) {
 			try {
 				Thread.sleep(1000);
 			} catch (InterruptedException ignore) {
 			}
-
-			if (size == 0) {
-				LOG.trace("btree clean thread: tree is empty");
-				continue;
-			}
-
 			// perform house cleaning if it has been 5 seconds or more since
 			// last clean job
 			if (System.currentTimeMillis() - lastClean >= 5000) {
@@ -423,12 +442,14 @@ public class BTree implements Runnable {
 				if (!isLocked()) {
 					try {
 						lock();
-						LOG.debug(runner.getName() + ": tree housecleaning");
-						clean(root);
+						clean();
 						lastClean = System.currentTimeMillis();
 					} finally {
 						unlock();
 					}
+				} else {
+					LOG.trace(runner.getName() + ": lock was taken");
+					lastClean = System.currentTimeMillis();
 				}
 			}
 		}
@@ -457,47 +478,46 @@ public class BTree implements Runnable {
 		return myLock.hasQueuedThreads();
 	}
 
-	private void printStats(Node n) {
-		// only leaves contain clusters
-		if (n.leaf) {
-			++numLeaves;
-			numClusters += n.size();
-		} else {
+	private int numNodes = 0;
+
+	private void setNumNodes(Node n) {
+		numNodes = 0;
+		if (!n.leaf) {
 			++numNodes;
 			for (Node node : n.children) {
-				printStats(node);
+				setNumNodes(node);
 			}
 		}
 	}
 
 	/**
-	 * Looks for tree entries that are no longer temporally relevant
-	 * 
-	 * @param node
+	 * Starting from the leaves, looks for leaf entries are no longer temporally
+	 * relevant and removes them from the tree
 	 */
-	private void clean(Node node) {
-		// only leaves contain clusters
-		if (node.isLeaf()) {
-			boolean removed;
-			do {
-				removed = false;
-				for (Node e : node.getChildren()) {
-					Entry entry = (Entry) e;
+	private void clean() {
+		if (!leaves.isEmpty()) {
+			LOG.trace("clean: checking leaves");
+			// iterate through all the leaves
+			for (Node leaf : leaves) {
+				// iterate through all the entries in this leaf
+				for (Node node : leaf.getChildren()) {
+					Entry entry = (Entry) node;
+					// if the Entry is no longer relevant, then remove it from
+					// the Leaf node
 					if (!entry.isRelevant()) {
 						entry.remove();
-						if (node.isEmpty()) {
-							condenseTree(node);
-						}
-						removed = true;
-						break;
 					}
 				}
-			} while (removed);
-		} else {
-			for (ListIterator<Node> li = node.getChildren().listIterator(); li
-					.hasNext();) {
-				clean(li.next());
+				// if the leaf is empty, remove it from the tree and start the
+				// cycle over
+				if (leaf.isEmpty()) {
+					condenseTree(leaf);
+					clean();
+					return;
+				}
 			}
+		} else {
+			LOG.trace("clean: no leaves to check");
 		}
 	}
 
@@ -509,7 +529,7 @@ public class BTree implements Runnable {
 	 * @param e
 	 * @return
 	 */
-	private Node chooseLeaf(Node n, ClusandraKernel c) {
+	private Node chooseLeaf(Node n, MicroCluster c) {
 		// return if n is a leaf
 		if (n.leaf) {
 			return n;
@@ -519,7 +539,8 @@ public class BTree implements Runnable {
 		double minDistance = Double.MAX_VALUE;
 		Node next = null;
 		for (Node child : n.children) {
-			double distance = c.getDistance(child.center);
+			double distance = MicroCluster.getDistance(c.getCenter(),
+					child.center);
 			if (distance < minDistance) {
 				minDistance = distance;
 				next = child;
@@ -533,26 +554,27 @@ public class BTree implements Runnable {
 		return chooseLeaf(next, c);
 	}
 
+	/**
+	 * Called immediately after a leaf has been split.
+	 * 
+	 * @param n
+	 * @param nn
+	 */
 	private void adjustTree(Node n, Node nn) {
+		LOG.debug("adjustTree: entered, root = " + (n == root));
 		if (n == root) {
 			if (nn != null) {
 				// build new non-leaf root and add children.
+				LOG.debug("adjustTree: building new root");
 				root = buildRoot(false);
 				root.addChild(n);
 				root.addChild(nn);
 			}
 			return;
 		}
-
-		if (nn != null) {
-			if (n.parent.size() > maxEntries) {
-				Node[] splits = splitNode(n.parent);
-				adjustTree(splits[0], splits[1]);
-			}
-		}
-
-		if (n.parent != null) {
-			adjustTree(n.parent, null);
+		if (n.parent.size() > maxEntries) {
+			Node[] splits = splitNode(n.parent);
+			adjustTree(splits[0], splits[1]);
 		}
 	}
 
@@ -587,14 +609,44 @@ public class BTree implements Runnable {
 
 		// temporarily adopt the children of the node being split
 		LinkedList<Node> children = new LinkedList<Node>(nn[0].children);
+
+		// reset the node being split up
 		nn[0].children.clear();
-		// now distribute the children across the two nodes
-		for (int i = 0; i < children.size(); i++) {
-			Node node = children.get(i);
-			if ((i % 2) == 0) {
-				nn[0].addChild(node);
+		nn[0].clearCenter();
+
+		// distribute the children across the two nodes, making sure
+		// those closest to one another end up in the same node
+
+		// remove the first child, and add it to the first node
+		Node lastNode = children.removeFirst();
+		nn[0].addChild(lastNode);
+
+		// remove the child that is furthest away from the one just
+		// removed
+		double maxDist = Double.NEGATIVE_INFINITY;
+		Node maxNode = null;
+		for (Node child : children) {
+			double dist = MicroCluster.getDistance(lastNode.center,
+					child.center);
+			if (dist > maxDist) {
+				maxDist = dist;
+				maxNode = child;
+			}
+		}
+		// add the furthest one to the second node
+		nn[1].addChild(maxNode);
+		children.remove(maxNode);
+
+		// remove each remaining child and add it to the node to which it is
+		// closest
+		while (!children.isEmpty()) {
+			lastNode = children.removeFirst();
+			double d0 = getNearestDistance(lastNode, nn[0].children);
+			double d1 = getNearestDistance(lastNode, nn[1].children);
+			if (d0 <= d1) {
+				nn[0].addChild(lastNode);
 			} else {
-				nn[1].addChild(node);
+				nn[1].addChild(lastNode);
 			}
 		}
 
@@ -604,10 +656,43 @@ public class BTree implements Runnable {
 	}
 
 	/**
+	 * Returns the number of clusters in the tree
+	 * 
+	 * @return
+	 */
+	private int getNumClusters() {
+		int numClusters = 0;
+		if (!leaves.isEmpty()) {
+			for (Node leaf : leaves) {
+				numClusters += leaf.size();
+			}
+		}
+		return numClusters;
+	}
+
+	/**
+	 * Get the distance of the nearest Node in the list to that of the given
+	 * Node
+	 * 
+	 * @param node
+	 * @param nodes
+	 * @return
+	 */
+	private static double getNearestDistance(Node node, LinkedList<Node> nodes) {
+		double minDistance = Double.MAX_VALUE;
+		for (Node tNode : nodes) {
+			double distance = MicroCluster.getDistance(node.center,
+					tNode.center);
+			minDistance = (distance < minDistance) ? distance : minDistance;
+		}
+		return minDistance;
+	}
+
+	/**
 	 * There are two types of nodes in the tree: Node and Leaf.
 	 * 
-	 * A Node contains other Nodes, while a Leaf contains an Entry, which
-	 * encapsulates a microcluster
+	 * A Node contains other Nodes, while a Leaf contains one or more Entry
+	 * nodes, which encapsulates a microcluster
 	 * 
 	 * @author jfernandez
 	 * 
@@ -616,12 +701,14 @@ public class BTree implements Runnable {
 
 		double N = 0.0d;
 		double center[];
+		double LS[];
 		LinkedList<Node> children = new LinkedList<Node>();
 		boolean leaf;
 		Node parent;
 
 		private Node(int dimensions, boolean leaf) {
 			this.leaf = leaf;
+			LS = new double[dimensions];
 			center = new double[dimensions];
 			// if this is a leaf, add it to the leaf index
 			if (leaf) {
@@ -638,34 +725,36 @@ public class BTree implements Runnable {
 		}
 
 		void addChild(Node child) {
-			N += child.N;
-			for (int i = 0; i < center.length; i++) {
-				center[i] = (center[i] + child.center[i]) / N;
-			}
+			addCenter(child.N, child.LS);
 			children.add(child);
 			child.parent = this;
 		}
 
 		void removeChild(Node child) {
-			N -= child.N;
-			for (int i = 0; i < center.length; i++) {
-				center[i] = (center[i] - child.center[i]) / N;
-			}
+			subCenter(child.N, child.LS);
 			children.remove(child);
 		}
 
 		void addCenter(double nN, double[] nC) {
 			N += nN;
-			for (int i = 0; i < center.length; i++) {
-				center[i] = (center[i] + nC[i]) / N;
+			for (int i = 0; i < LS.length; i++) {
+				LS[i] += nC[i];
+				center[i] = LS[i] / N;
 			}
 		}
 
 		void subCenter(double nN, double[] nC) {
 			N -= nN;
 			for (int i = 0; i < center.length; i++) {
-				center[i] = (center[i] - nC[i]) / N;
+				LS[i] -= nC[i];
+				center[i] = LS[i] / N;
 			}
+		}
+
+		void clearCenter() {
+			N = 0.0d;
+			Arrays.fill(center, 0.0d);
+			Arrays.fill(LS, 0.0d);
 		}
 
 		int size() {
@@ -678,25 +767,24 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * An entry is only found in leaf nodes and contains a microcluster
+	 * An Entry node contains a microcluster and it is only found in a Leaf
+	 * node.
 	 * 
 	 * @author jfernandez
 	 * 
 	 */
 	private class Entry extends Node {
-		ClusandraKernel cluster;
+		MicroCluster cluster;
 		// must start off with a max density
 		double density = getMaximumDensity();
 
-		Entry(ClusandraKernel cluster) {
-			super(cluster.getCenter().length, true);
+		Entry(MicroCluster cluster) {
+			super(cluster.getLS().length, false);
 			this.cluster = cluster;
-			// assign this node's center, the cluster's center
-			center = Arrays.copyOf(cluster.getCenter(), center.length);
-			N = cluster.getN();
+			addCenter(cluster.getN(), cluster.getLS());
 		}
 
-		ClusandraKernel getCluster() {
+		MicroCluster getCluster() {
 			return cluster;
 		}
 
@@ -704,23 +792,26 @@ public class BTree implements Runnable {
 			return density;
 		}
 
-		void absorb(ClusandraKernel target) {
+		/*
+		 * Remember that chooseLeaf will have added the given target cluster to
+		 * all the parent nodes!
+		 */
+		void absorb(MicroCluster target) {
 			// before absorbing the given cluster, set the new density based on
 			// the creation time of the given cluster
-			// ???????????????????
+			// ??
 			density = getTemporalDensity(target.getCT());
 			cluster.merge(target);
-			center = Arrays.copyOf(cluster.getCenter(), center.length);
-			N = cluster.getN();
+			clearCenter();
+			addCenter(cluster.getN(), cluster.getLS());
 		}
 
-		// remove this Entry from the tree. Entries are found only in leaf
-		// nodes!
+		// Remove this Entry from the tree.
 		void remove() {
-			parent.getChildren().remove(this);
-			Node nextParent = parent;
-			while (nextParent != root) {
-				nextParent.subCenter(this.N, this.center);
+			parent.removeChild(this);
+			Node nextParent = parent.parent;
+			while (nextParent != null) {
+				nextParent.subCenter(N, LS);
 				nextParent = nextParent.parent;
 			}
 		}

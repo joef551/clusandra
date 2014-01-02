@@ -26,14 +26,14 @@ package clusandra.cql;
 import java.util.*;
 
 import clusandra.utils.DateUtils;
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 
 import static clusandra.cql.CqlMain.sessionState;
 import static clusandra.cql.CqlMain.cassyCluster;
 import static clusandra.cql.CqlMain.cassyDao;
 
-import static clusandra.clusterers.ClusandraKernel.SortField;
-import static clusandra.clusterers.ClusandraKernel.SortOrder;
+import static clusandra.clusterers.MicroCluster.SortField;
+import static clusandra.clusterers.MicroCluster.SortOrder;
 
 /**
  * CluSandra Query Language (CQL) Select
@@ -232,7 +232,7 @@ public class CqlSelect {
 			endDate = startDate;
 		}
 
-		List<ClusandraKernel> clusters = null;
+		List<MicroCluster> clusters = null;
 		try {
 			if (startDate != null) {
 				clusters = cassyDao.getClusters(startDate, endDate);
@@ -254,7 +254,7 @@ public class CqlSelect {
 		markProject(clusters);
 
 		if (sortField != null) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				cluster.setSortField(sortField);
 				cluster.setSortOrder(sortOrder);
 			}
@@ -782,17 +782,17 @@ public class CqlSelect {
 
 	// iterate through the retrieved clusters and determine which will be
 	// projected based on contents of where clause (if any)
-	static void markProject(List<ClusandraKernel> clusters) {
+	static void markProject(List<MicroCluster> clusters) {
 
 		// check for N
 		if (nEquals > 0) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if (cluster.getN() != nEquals) {
 					cluster.setProject(false);
 				}
 			}
 		} else if (nGreaterThan > 0 || nGreaterThanEqual > 0) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if (nGreaterThan > 0) {
 					if (cluster.getN() <= nGreaterThan) {
 						cluster.setProject(false);
@@ -809,7 +809,7 @@ public class CqlSelect {
 			}
 		} else if (nLessThan > 0) {
 			// System.out.println("nLessThan = " + nLessThan);
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if (cluster.getN() >= nLessThan) {
 					cluster.setProject(false);
 				}
@@ -818,13 +818,13 @@ public class CqlSelect {
 
 		// check for radius
 		if (radiusEquals > 0) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if (cluster.getRadius() != radiusEquals) {
 					cluster.setProject(false);
 				}
 			}
 		} else if (radiusGreaterThan > 0 || radiusGreaterThanEqual > 0) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if (radiusGreaterThan > 0) {
 					if (cluster.getRadius() <= radiusGreaterThan) {
 						cluster.setProject(false);
@@ -840,7 +840,7 @@ public class CqlSelect {
 				}
 			}
 		} else if (radiusLessThan > 0) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if (cluster.getRadius() >= radiusLessThan) {
 					cluster.setProject(false);
 				}
@@ -848,7 +848,7 @@ public class CqlSelect {
 		}
 
 		if (typeField != null) {
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				if ((typeField == TypeField.SUPER && !cluster.isSuper())
 						|| (typeField == TypeField.MICRO && cluster.isSuper())) {
 					cluster.setProject(false);
@@ -880,13 +880,13 @@ public class CqlSelect {
 				String.format("%%0%dd", sb.length()), 0).replace("0", "-"));
 	}
 
-	private static void printRows(List<ClusandraKernel> clusters) {
+	private static void printRows(List<MicroCluster> clusters) {
 		if (!count && (fields2Display == null || fields2Display.isEmpty())) {
 			return;
 		}
 		int rowCnt = 0;
 		Calendar c = Calendar.getInstance();
-		for (ClusandraKernel cluster : clusters) {
+		for (MicroCluster cluster : clusters) {
 			if (!cluster.getProject()) {
 				continue;
 			}

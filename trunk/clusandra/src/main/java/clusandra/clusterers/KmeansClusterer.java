@@ -23,8 +23,8 @@
  */
 package clusandra.clusterers;
 
+import java.util.Arrays;
 import java.util.ListIterator;
-import java.util.Map;
 import java.util.List;
 import java.util.Collections;
 import java.util.ArrayList;
@@ -34,8 +34,6 @@ import java.io.Serializable;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import clusandra.cassandra.ClusandraDao;
-import clusandra.core.QueueAgent;
 import clusandra.core.AbstractProcessor;
 import clusandra.core.CluMessage;
 import clusandra.utils.StatUtils;
@@ -93,8 +91,6 @@ public class KmeansClusterer extends AbstractProcessor {
 
 	private static final double OVERLAP_FACTOR = 1.00d;
 
-	// the set of microclusters that this instance of the Clusterer maintains.
-	private List<ClusandraKernel> microClusters = new ArrayList<ClusandraKernel>();
 	/*
 	 * The overlap factor controls the merging of clusters. If the factor is set
 	 * to 1.0, then the two clusters will merge iff their radii overlap. In
@@ -124,71 +120,85 @@ public class KmeansClusterer extends AbstractProcessor {
 	// when set to true, invokes the optimized euclidean distance algorithm
 	private boolean fastDistance;
 
-	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// ~~~ The Key Names for This Algorithm's Configurable Properties ~~~
-	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	// the key names of the amount of time a microcluster is allowed to remain
-	// active without
-	// absorbing a DataRecord
-	private static final String overlapFactorKey = "overlapFactor";
-	private static final String sparseFactorKey = "sparseFactor";
-	private static final String lambdaKey = "lambda";
-	private static final String driftToleranceKey = "driftTolerance";
-	private static final String fastDistanceKey = "fastDistance";
-
 	// default maximum number of iterations before giving up
 	// on convergence
 	private int maxIterations = MAX_ITERATIONS;
 
+	// the drift tolerance for kmeans
 	private double driftTolerance = DRIFT_TOLERANCE;
 
+	// used for temporal density calculation
 	private double currentDensity;
 
-	// this list is used for grouping DataRecords that are temporally relevant
-	// to one another
-	List<DataRecord> recordsToCluster = new ArrayList<DataRecord>();
+	// the choke is used in the iterative reduction phase; the selected value,
+	// which is relatively high, corresponds with an initial clustering that is
+	// very cluster'able. for example, the clusters in the set are
+	// well-separated and have low variance. the choke is decreased if it is
+	// determined that the clustering is not as cluster'able
+	private static final double DEFAULT_CHOKE = 0.35D;
+	private double choke = DEFAULT_CHOKE;
+
+	// these three variables are used for incremental reduction of clusters
+	private double baseVariance = 0.01D;
+	private double varianceInterval = 0.0065D;
+	private double reductionRate = 0.16D;
+
+	// these are labels used to assign a cluster'ability level to the various
+	// statistics associated with an initial cluster set.
+	private enum Measure {
+		VERY_LOW, LOW, MEDIUM, HIGH, VERY_HIGH;
+	}
+
+	// used to specify how hard the overall algorithm should work to find the
+	// optimal solution
+	private int numRetries = 2;
+
+	// this list is used for grouping DataRecords (points) that are temporally
+	// relevant to one another
+	List<DataRecord> pointsToCluster = new ArrayList<DataRecord>();
 
 	public KmeansClusterer() {
 		super();
 	}
 
-	/**
-	 * Invoked by Spring to set the Map that contains configuration parameters
-	 * for this Clusterer.
-	 * 
-	 * @param map
-	 */
-	public void setConfig(Map<String, String> map) throws Exception {
-		for (String key : map.keySet()) {
-			if (overlapFactorKey.equals(key)) {
-				setOverlapFactor(map.get(key));
-				LOG.trace("setConfig:cluster overlapFactor = "
-						+ getOverlapFactor());
-			} else if (sparseFactorKey.equals(key)) {
-				setSparseFactor(map.get(key));
-				LOG.trace("setConfig:cluster sparseFactor = "
-						+ getSparseFactor());
-			} else if (lambdaKey.equals(key)) {
-				setLambda(map.get(key));
-				LOG.trace("lambda = " + getLambda());
-			} else if (driftToleranceKey.equals(key)) {
-				setDriftTolerance(map.get(key));
-				LOG.trace("driftToleranceKey = " + getDriftTolerance());
-			} else if (fastDistanceKey.equals(key)) {
-				setFastDistance(map.get(key));
-				LOG.trace("fastDistanceKey = " + getFastDistance());
-			}
-		}
+	public double getChoke() {
+		return choke;
 	}
 
-	/**
-	 * Called by setConfig() to set the cluster overlap factor.
-	 * 
-	 * @param overlapFactor
-	 * @throws Exception
-	 */
-	public void setOverlapFactor(String overlapFactor) throws Exception {
-		setOverlapFactor(Double.parseDouble(overlapFactor));
+	public void setChoke(double choke) {
+		this.choke = choke;
+	}
+
+	public int getNumRetries() {
+		return numRetries;
+	}
+
+	public void setNumRetries(int numRetries) {
+		this.numRetries = numRetries;
+	}
+
+	public double getReductionRate() {
+		return reductionRate;
+	}
+
+	public void setReductionRate(double reductionRate) {
+		this.reductionRate = reductionRate;
+	}
+
+	public double getBaseVariance() {
+		return baseVariance;
+	}
+
+	public void setBaseVariance(double baseVariance) {
+		this.baseVariance = baseVariance;
+	}
+
+	public double getVarianceInterval() {
+		return varianceInterval;
+	}
+
+	public void setVarianceInterval(double varianceInterval) {
+		this.varianceInterval = varianceInterval;
 	}
 
 	public void setOverlapFactor(double overlapFactor)
@@ -201,23 +211,8 @@ public class KmeansClusterer extends AbstractProcessor {
 		this.overlapFactor = overlapFactor;
 	}
 
-	/**
-	 * Returns the cluster overlap factor being used.
-	 * 
-	 * @return
-	 */
 	public double getOverlapFactor() {
 		return overlapFactor;
-	}
-
-	/**
-	 * Called by setConfig() to set the cluster sparse factor.
-	 * 
-	 * @param sparseFactor
-	 * @throws Exception
-	 */
-	public void setSparseFactor(String sparseFactor) throws Exception {
-		setSparseFactor(Double.parseDouble(sparseFactor));
 	}
 
 	public void setSparseFactor(double sparseFactor)
@@ -230,24 +225,8 @@ public class KmeansClusterer extends AbstractProcessor {
 		this.sparseFactor = sparseFactor;
 	}
 
-	/**
-	 * Returns the cluster sparse factor being used.
-	 * 
-	 * @return
-	 */
 	public double getSparseFactor() {
 		return sparseFactor;
-	}
-
-	/**
-	 * Called by setConfig() to set the cluster lambda value for density
-	 * calculations.
-	 * 
-	 * @param lambda
-	 * @throws Exception
-	 */
-	public void setLambda(String lambda) throws Exception {
-		setLambda(Double.parseDouble(lambda));
 	}
 
 	public void setLambda(double lambda) throws IllegalArgumentException {
@@ -259,23 +238,8 @@ public class KmeansClusterer extends AbstractProcessor {
 		this.lambda = lambda;
 	}
 
-	/**
-	 * Returns the lambda value for density calculations.
-	 * 
-	 * @return
-	 */
 	public double getLambda() {
 		return lambda;
-	}
-
-	/**
-	 * Called by setConfig() to set the drift tolerance.
-	 * 
-	 * @param driftTolerance
-	 * @throws Exception
-	 */
-	public void setDriftTolerance(String driftTolerance) throws Exception {
-		setDriftTolerance(Double.parseDouble(driftTolerance));
 	}
 
 	public void setDriftTolerance(double driftTolerance)
@@ -288,22 +252,12 @@ public class KmeansClusterer extends AbstractProcessor {
 		this.driftTolerance = driftTolerance;
 	}
 
-	/**
-	 * Returns the cluster drift tolerance.
-	 * 
-	 * @return
-	 */
 	public double getDriftTolerance() {
 		return driftTolerance;
 	}
 
-	/**
-	 * Specify whether or not to use fast euclidean distance
-	 * 
-	 * @param fastDistance
-	 */
-	public void setFastDistance(String fastDistance) {
-		this.fastDistance = Boolean.parseBoolean(fastDistance.trim());
+	public void setFastDistance(boolean fastDistance) {
+		this.fastDistance = fastDistance;
 	}
 
 	public boolean getFastDistance() {
@@ -335,19 +289,12 @@ public class KmeansClusterer extends AbstractProcessor {
 	}
 
 	/**
-	 * Return the working set of microclusters for this clusterer
-	 * 
-	 * @return
-	 */
-	public List<ClusandraKernel> getMicroClusters() {
-		return microClusters;
-	}
-
-	/**
 	 * Called by the QueueAgent to give the Clusterer a collection of
 	 * DataRecords to process. The collection is read from the QueueAgent's JMS
 	 * queue. DataRecords are then clustered in groups, where all members of a
 	 * particular group are temporally relevant.
+	 * 
+	 * The DataRecords are treated as points in a point-space.
 	 * 
 	 * Design note: This method can be called by the QueueAgent within the
 	 * context of a local JMS transaction. So not until this method returns,
@@ -370,11 +317,11 @@ public class KmeansClusterer extends AbstractProcessor {
 			return;
 		}
 
-		List<DataRecord> dataRecords = new ArrayList<DataRecord>();
+		List<DataRecord> dataPoints = new ArrayList<DataRecord>();
 		for (CluMessage cMsg : cluMessages) {
 			Serializable obj = cMsg.getBody();
 			if (obj instanceof DataRecord) {
-				dataRecords.add((DataRecord) obj);
+				dataPoints.add((DataRecord) obj);
 			} else {
 				throw new Exception(
 						"ERROR, cluMessage does not contain a DataRecord");
@@ -382,29 +329,43 @@ public class KmeansClusterer extends AbstractProcessor {
 		}
 
 		LOG.debug("processCluMessages: number of DataRecords received = "
-				+ dataRecords.size());
+				+ dataPoints.size());
 
-		// first sort the list of data records in ascending timestamp order
-		Collections.sort(dataRecords);
+		// ensure that all data points passed in have the same
+		// dimension!
+		int dims = dataPoints.get(0).getLocation().length;
+		LOG.debug("processCluMessages: number of dimensions = " + dims);
+		for (DataRecord point : dataPoints) {
+			if (point.getLocation().length != dims) {
+				throw new Exception(
+						"ERROR: all points do not have the same dimensions");
+			}
+		}
+
+		// normalize the points in their point space
+		normalizePoints(dataPoints);
+
+		// sort the list of points in ascending timestamp order
+		Collections.sort(dataPoints);
 
 		// reset the current temporal density to the maximum density
 		resetCurrentDensity();
 
-		// cluster the given data records in groups where all records in a group
-		// are temporally relevant to one another
-		for (ListIterator<DataRecord> li = dataRecords.listIterator(); li
+		// cluster the given points into groups where all points in a group
+		// are temporally relevant to one another; spatial clustering is next
+		for (ListIterator<DataRecord> li = dataPoints.listIterator(); li
 				.hasNext();) {
-			DataRecord record = li.next();
-			if (!recordsToCluster.isEmpty()) {
+			DataRecord point = li.next();
+			if (!pointsToCluster.isEmpty()) {
 				// grab the time stamp of the last record in the current
 				// grouping and run a density check between that time
 				// and the new record's time.
 				double density = 0.0d;
 				// the density algorithm is based on seconds, so convert from
 				// ms to seconds
-				double lastTime = recordsToCluster.get(
-						recordsToCluster.size() - 1).getTimestamp() / 1000;
-				double newTime = record.getTimestamp() / 1000;
+				double lastTime = pointsToCluster.get(
+						pointsToCluster.size() - 1).getTimestamp() / 1000;
+				double newTime = point.getTimestamp() / 1000;
 				double delta = Math.round((newTime / 1000) - (lastTime / 1000));
 				if (delta <= 0.0d) {
 					density = getCurrentDensity();
@@ -420,52 +381,279 @@ public class KmeansClusterer extends AbstractProcessor {
 					// the new record is not temporally relevant with the
 					// current group, so cluster the existing group and
 					// start a new one
-					clusterDataRecords(recordsToCluster);
-					recordsToCluster.clear();
+					clusterDataPoints(pointsToCluster);
+					pointsToCluster.clear();
 					resetCurrentDensity();
 				}
 			}
-			recordsToCluster.add(record);
+			pointsToCluster.add(point);
 			li.remove();
 		}
-		clusterDataRecords(recordsToCluster);
-		recordsToCluster.clear();
+		clusterDataPoints(pointsToCluster);
+		pointsToCluster.clear();
 		LOG.debug("processCluMessages: exit");
 	}
 
 	/**
-	 * Cluster a group of temporally relevant occurrences in the point space.
-	 * The result is a set of micro-clusters that is sent on to the
-	 * BTreeClusterer.
+	 * Cluster the temporally related points into spatially similar points.
 	 * 
-	 * @param dataRecords
+	 * @param dataPoints
 	 * @throws Exception
 	 */
-	private void clusterDataRecords(List<DataRecord> dataRecords)
+	private void clusterDataPoints(List<DataRecord> dataPoints)
 			throws Exception {
 
-		LOG.debug("clusterDataRecords: entered");
+		// get the initial number of clusters, which is the square root of the
+		// number of points
+		int numClusters = (int) Math.sqrt(dataPoints.size());
 
-		// do a little validation
-		if (dataRecords == null || dataRecords.isEmpty()) {
-			LOG.warn("clusterDataRecords: entered with empty DataRecord list");
-			return;
-		} else if (dataRecords.size() < 4) {
-			throw new Exception(
-					"clusterDataRecords: entered with not enough DataRecords");
-		}
+		LOG.debug("clusterDataPoints: initial cluster count = " + numClusters);
 
-		LOG.debug("clusterDataRecords: number of DataRecords received = "
-				+ dataRecords.size());
+		// generate the initial set of clusters
+		KmeansCluster[] clusters = runKmeans(dataPoints, numClusters);
 
-		int numClusters = (int) Math.sqrt(dataRecords.size());
+		// begin merge-reduction process
 
-		LOG.debug("clusterDataRecords: initial number of clusters = "
+		// first, begin by merging those clusters whose radius (standard
+		// deviation of 1.0) overlap. This forms the base set from which to
+		// start the iterative reduction process
+		clusters = mergeClusters(clusters);
+
+		numClusters = clusters.length;
+
+		LOG.debug("clusterDataPoints: Cluster count after merge = "
 				+ numClusters);
 
-		// using kmeans++, create the initial set of clusters from the set
-		// of points provided.
-		KmeansKernel[] clusters = kmeansPlusPlus(dataRecords, numClusters);
+		Measure separation;
+
+		// now we gather some descriptive statics for the clusters,
+		// this allows us to make decisions and/or conclusions
+		// regarding the structure of the clusters; e.g., the
+		// stats may indicate that the structure associated with
+		// this initial merged set of clusters is not conducive
+		// for further reduction via the iterative approach
+
+		// get the average variance of the cluster set
+		double avgVariance = getAvgVariance(clusters);
+		LOG.debug("clusterDataPoints: Avg variance = " + avgVariance);
+
+		// get the standard deviation of the new clusters' overall
+		// standard deviations. this will be used to measure the
+		// increased or decreased variance, across all the standard
+		// deviations, as a result of reducing the cluster count
+		// by one.
+		double stdDev = getStdDevOfClusters(clusters);
+		double baseAvgStdDev = stdDev;
+		LOG.debug("clusterDataPoints: Initial baseAvgStdDev = " + baseAvgStdDev);
+
+		// get the average distance between the clusters' 1.0 radii
+		double avgRadiiDist = getAvgRadiusDistance(clusters);
+		LOG.debug("clusterDataPoints: Avg distance between clusters' radii = "
+				+ avgRadiiDist);
+
+		double tmpChoke = getChoke();
+
+		// the more variance there is across the cluster set, the more
+		// subtle will be the increase in the variance across that cluster
+		// set as you reduce the set.
+
+		// if the choke has not been specified and the average
+		// variance is greater than the minimum (baseVariance), then
+		// the choke will need to be reduced. the amount of the reduction is
+		// dictated by the amount of variance across the cluster set. the
+		// more variance the more the choke will need to be reduced.
+		if (tmpChoke == DEFAULT_CHOKE && avgVariance > baseVariance) {
+			/*
+			 * subtract the baseVariance from the avgVariance, then divide by
+			 * the step interval. this in turn gives us the number of steps to
+			 * reduce, where each step has a reduction rate. e.g., suppose the
+			 * average variance for the cluster set is 0.0164, the baseVarance
+			 * is set at 0.01, the varianceInterval is set at 0.0065, the
+			 * default choke is set at 0.35, and the reductionRate is 0.14. The
+			 * difference between the base and average variance is then 0.0065,
+			 * which also happens to be the varianceInterval; therefore the
+			 * number of steps to reduce by is 1. So multiply 1 times the
+			 * reductionRate which gives you 0.14, then subtract that from 1 and
+			 * multiply it times the choke.
+			 */
+			tmpChoke = (1 - (((avgVariance - baseVariance) / varianceInterval) * reductionRate))
+					* tmpChoke;
+			LOG.debug("clusterDataPoints: calculated choke  = " + tmpChoke);
+		}
+
+		LOG.debug("clusterDataPoints: final choke  = " + tmpChoke);
+
+		/*
+		 * if the final choke is less than 0, then this temporal grouping of
+		 * data points is not clusterable. the grouping represents stragglers
+		 * that pertain to some other main grouping. if this is the case, pass
+		 * each data point as a microcluster onto the btree clusterer (i.e.,
+		 * reducer).
+		 */
+		if (tmpChoke <= 0) {
+			for (DataRecord dataPoint : dataPoints) {
+				dataPoint.restoreAttValues();
+				// create microcluster
+				MicroCluster mc = new MicroCluster(
+						dataPoint.getLocation().length);
+				// have the "creation time" of the micro cluster be the timestamp
+				// of the data point
+				mc.setCT(dataPoint.getTimestamp());
+				// now have the microcluster absorb the data point
+				mc.absorb(dataPoint);
+				getQueueAgent().sendMessage(mc);
+			}
+			getQueueAgent().flush();
+			LOG.debug("clusterDataRecords: exiting after sending on stragglers");
+			return;
+		}
+
+		// label the average distance between the clusters' radii
+		if (avgRadiiDist > 1.8) {
+			separation = Measure.VERY_HIGH;
+		} else if (avgRadiiDist >= 1.5) {
+			separation = Measure.HIGH;
+		} else if (avgRadiiDist >= 1.4) {
+			separation = Measure.MEDIUM;
+		} else {
+			separation = Measure.LOW;
+		}
+
+		LOG.debug("clusterDataPoints: separation  = " + separation);
+
+		double runningBaseStdDev = stdDev;
+		double baseCount = 1.0;
+		double deltaStdDev = 0.0D;
+		int retry = numRetries;
+		KmeansCluster[] newClusters = null;
+		double newStdDev = Double.MAX_VALUE;
+
+		while (retry > 0 && numClusters > 1) {
+
+			// reset the points so that they can be reused
+			for (DataRecord point : dataPoints) {
+				point.reset();
+			}
+
+			// perform kmeans on the new reduced cluster count
+			newClusters = runKmeans(dataPoints, --numClusters);
+
+			// get the new standard deviation of the new clusters'
+			// overall standard deviations.
+			newStdDev = getStdDevOfClusters(newClusters);
+
+			// calculate the percentage increase or decrease from
+			// the base average standard deviation. if the change was
+			// too high, then ignore this set and try it again if
+			// there are enough retries left.
+			deltaStdDev = (newStdDev - baseAvgStdDev) / baseAvgStdDev;
+
+			// LOG.trace("clusterDataPoints: New/prev stdDev = " + newStdDev +
+			// " / " + stdDev);
+			// LOG.trace("clusterDataPoints: deltaStdDev = " + deltaStdDev);
+
+			// if the increase is very high and the separation is also
+			// very high, then stop the reduction process
+			if (deltaStdDev >= 1.0 && separation == Measure.VERY_HIGH) {
+				LOG.trace("clusterDataPoints: premature exit");
+				retry = 0;
+			}
+
+			// if the percentage change was acceptable, then keep the
+			// new reduced set of clusters.
+			else if (deltaStdDev < tmpChoke) {
+				clusters = newClusters;
+				stdDev = newStdDev;
+				runningBaseStdDev += stdDev;
+				baseAvgStdDev = runningBaseStdDev / (++baseCount);
+				retry = numRetries;
+
+				LOG.trace("clusterDataPoints: New cluster count = "
+						+ numClusters);
+				LOG.trace("clusterDataPoints: New running baseAvgStdDev = "
+						+ baseAvgStdDev);
+
+			} else {
+				--retry;
+				++numClusters;
+			}
+		}
+		LOG.debug("clusterDataPoints: cluster count after cost reduction = "
+				+ clusters.length);
+
+		// one final attempt at a merge
+		if (clusters.length > 1) {
+			clusters = mergeClusters(clusters);
+		}
+
+		LOG.debug("clusterDataPoints: Cluster count after final merge = "
+				+ clusters.length);
+		LOG.trace("clusterDataPoints: Final avg distance between clusters' radii = "
+				+ getAvgRadiusDistance(clusters));
+		LOG.trace("clusterDataPoints: Final avg variance = "
+				+ getAvgVariance(clusters));
+		LOG.trace("clusterDataPoints: Final cluster standard deviation = "
+				+ getStdDevOfClusters(clusters));
+
+		// if (_test)
+		// return;
+
+		// lastly, transform the final cluster set into a set of micro-clusters
+		// and enqueue the microclusters for the btree clusterer
+		for (KmeansCluster cluster : clusters) {
+			// first sort the list of the cluster's data records in ascending
+			// timestamp order
+			Collections.sort(cluster.getPoints());
+			// create microcluster
+			MicroCluster mc = new MicroCluster(cluster.getLocation().length);
+			// have the "creation time" of the micro cluster be the timestamp of
+			// the oldest point in the cluster
+			mc.setCT(cluster.getPoints().get(0).getTimestamp());
+			// now have the microcluster absorb all of this cluster's data
+			// points
+			for (DataRecord point : cluster.getPoints()) {
+				point.restoreAttValues();
+				mc.absorb(point);
+			}
+			getQueueAgent().sendMessage(mc);
+			cluster.reset();
+		}
+		// send out any stragglers
+		getQueueAgent().flush();
+
+		LOG.debug("clusterDataRecords: exit");
+
+	}
+
+	/**
+	 * Cluster a group of temporally related occurrences in the point space. The
+	 * result is a set of micro-clusters that is sent on to the BTreeClusterer.
+	 * 
+	 * @param dataPoints
+	 * @throws Exception
+	 */
+	private KmeansCluster[] runKmeans(List<DataRecord> dataPoints,
+			int numClusters) throws Exception {
+
+		if (dataPoints == null || dataPoints.size() == 0 || numClusters == 0) {
+			throw new IllegalArgumentException();
+		}
+
+		// we should try and do something to prevent this!
+		// if it is less than 4, but greater than 0, then perhaps we should
+		// treat each point as a microcluster!!
+		if (dataPoints.size() < 4) {
+			throw new Exception(
+					"runKmeans: entered with not enough DataRecords");
+		}
+
+		LOG.debug("runKmeans: number of DataRecords received = "
+				+ dataPoints.size());
+
+		LOG.debug("runKmeans: number of clusters = " + numClusters);
+
+		// using kmeans++, seed kmeans
+		KmeansCluster[] clusters = kmeansPlusPlus(dataPoints, numClusters);
 
 		// begin the kmeans loop
 		int numIterations = 0;
@@ -476,12 +664,12 @@ public class KmeansClusterer extends AbstractProcessor {
 			assignClusters(clusters);
 
 			// now assign all points to their nearest cluster centroid
-			for (DataRecord point : dataRecords) {
+			for (DataRecord point : dataPoints) {
 
 				double minDist = Double.MAX_VALUE;
 				// get the cluster that this point id currently assigned to (if
 				// any)
-				KmeansKernel minCluster = point.getKmeansKernel();
+				KmeansCluster minCluster = point.getKmeansKernel();
 
 				// if the point is assigned to a cluster and the
 				// distance from this point to the cluster is less
@@ -502,7 +690,7 @@ public class KmeansClusterer extends AbstractProcessor {
 				// find this point's nearest cluster centroid
 				minDist = Double.MAX_VALUE;
 				minCluster = null;
-				for (KmeansKernel cluster : clusters) {
+				for (KmeansCluster cluster : clusters) {
 					double distance = getMinDistance(minDist,
 							cluster.getLocation(), point.toDoubleArray());
 					if (distance < minDist) {
@@ -523,7 +711,7 @@ public class KmeansClusterer extends AbstractProcessor {
 			// [re]calculate the amount of drift for each and every
 			// cluster. important to do it for all clusters even if
 			// they have not converged.
-			for (KmeansKernel cluster : clusters) {
+			for (KmeansCluster cluster : clusters) {
 				if (cluster.getPoints().size() > 0) {
 					double driftDistance = getDistance(cluster.getMean(),
 							cluster.getLocation());
@@ -547,29 +735,11 @@ public class KmeansClusterer extends AbstractProcessor {
 
 		}
 		long endTime = System.currentTimeMillis();
-		LOG.debug("clusterDataRecords: number of iterations = " + numIterations);
-		LOG.debug("clusterDataRecords: number of clusters prior to merge = "
-				+ clusters.length);
-		LOG.debug("clusterDataRecords: number of ms per iteration = "
+		LOG.debug("runKmeans: number of iterations = " + numIterations);
+		LOG.debug("runKmeans: number of ms per iteration = "
 				+ ((endTime - startTime) / numIterations));
 
-		// merge the clusters
-		clusters = mergeClusters(clusters);
-
-		LOG.debug("clusterDataRecords: number of clusters after merge = "
-				+ clusters.length);
-
-		// now transform the kmeans clusters into micro-clusters and
-		// enqueue them
-		for (KmeansKernel cluster : clusters) {
-			cluster.initMicro();
-			getQueueAgent().sendMessage(new CluMessage(cluster));
-		}
-		// send out any stragglers
-		getQueueAgent().flush();
-
-		LOG.debug("clusterDataRecords: exit");
-
+		return clusters;
 	}
 
 	/**
@@ -589,13 +759,13 @@ public class KmeansClusterer extends AbstractProcessor {
 	 *            requested number of clusters
 	 * @return
 	 */
-	private KmeansKernel[] kmeansPlusPlus(List<DataRecord> points,
+	private KmeansCluster[] kmeansPlusPlus(List<DataRecord> points,
 			int numClusters) {
 
-		LOG.debug("kmeansPlusPlus: entered");
-		LOG.debug("kmeansPlusPlus: number of points = " + points.size());
-		LOG.debug("kmeansPlusPlus: number of clusters = " + numClusters);
-		LOG.debug("kmeansPlusPlus: overlap factor = " + getOverlapFactor());
+		LOG.trace("kmeansPlusPlus: entered");
+		LOG.trace("kmeansPlusPlus: number of points = " + points.size());
+		LOG.trace("kmeansPlusPlus: number of clusters = " + numClusters);
+		LOG.trace("kmeansPlusPlus: overlap factor = " + getOverlapFactor());
 
 		// always use a different seed! if not, you always end up with the
 		// same initial cluster pattern
@@ -603,7 +773,7 @@ public class KmeansClusterer extends AbstractProcessor {
 
 		// this will hold the set of clusters that will be returned to the
 		// caller
-		KmeansKernel[] clusters = new KmeansKernel[numClusters];
+		KmeansCluster[] clusters = new KmeansCluster[numClusters];
 
 		// keeps track of number of clusters created
 		int clusCount = 0;
@@ -611,7 +781,7 @@ public class KmeansClusterer extends AbstractProcessor {
 		// randomly find our first cluster centroid from the given points
 		int randomIndex = randomGen.nextInt(points.size());
 
-		clusters[clusCount++] = new KmeansKernel(points.get(randomIndex));
+		clusters[clusCount++] = new KmeansCluster(points.get(randomIndex));
 
 		// main loop that creates the rest of the clusters
 		for (; clusCount < numClusters; clusCount++) {
@@ -655,81 +825,66 @@ public class KmeansClusterer extends AbstractProcessor {
 					maxPoint = point;
 				}
 			}
-			clusters[clusCount] = new KmeansKernel(maxPoint);
+			clusters[clusCount] = new KmeansCluster(maxPoint);
 		}
-
-		LOG.debug("kmeansPlusPlus: exit");
 
 		return clusters;
 	}
 
 	/**
-	 * True kmeans++
+	 * Using the z-score, normalize the given points.
+	 * 
+	 * Since Euclidean distance is used, the clusters will be influenced
+	 * strongly by the magnitudes of the variables, especially by outliers.
+	 * Normalizing removes this bias. However, whether or not one desires this
+	 * removal of bias depends on what one wants to find: sometimes if one would
+	 * want a variable to influence the clusters more, one could manipulate the
+	 * clusters precisely in this way, by increasing the relative magnitude of
+	 * these fields.
 	 * 
 	 * @param points
-	 * @param numClusters
-	 * @return
 	 */
-	private KmeansKernel[] kmeansPlusPlusTrue(List<DataRecord> points,
-			int numClusters) {
+	public static void normalizePoints(List<DataRecord> points) {
 
-		LOG.debug("kmeansPlusPlusTrue: entered");
-		LOG.debug("kmeansPlusPlusTrue: number of points = " + points.size());
-		LOG.debug("kmeansPlusPlusTrue: number of clusters = " + numClusters);
-		LOG.debug("kmeansPlusPlusTrue: overlap factor = " + getOverlapFactor());
+		if (points == null || points.isEmpty()) {
+			return;
+		}
 
-		// always use a different seed! if not, you always end up with the
-		// same initial cluster pattern
-		Random randomGen = new Random();
+		double N = points.size();
 
-		// this will hold the set of clusters that will be returned to the
-		// caller
-		KmeansKernel[] clusters = new KmeansKernel[numClusters];
+		// first find the mean
+		double[] mean = new double[points.get(0).getLocation().length];
+		Arrays.fill(mean, 0.0F);
+		for (DataRecord point : points) {
+			sumArrays(mean, point.getLocation());
+		}
+		for (int i = 0; i < mean.length; i++) {
+			mean[i] /= N;
+		}
 
-		// keeps track of number of clusters created
-		int clusCount = 0;
-
-		// randomly find our first cluster centroid from the given points
-		// and mark it as being selected as a centroid
-		int randomIndex = randomGen.nextInt(points.size());
-
-		clusters[clusCount++] = new KmeansKernel(points.get(randomIndex));
-
-		// main loop that creates the rest of the clusters
-		for (; clusCount < numClusters; clusCount++) {
-
-			// this will hold the sum of all the distances from each point to
-			// its nearest cluster.
-			double sumDistance = 0.0;
-
-			// assign all points to their nearest cluster and record
-			// their distances to that cluster
-			for (DataRecord point : points) {
-				// find this point's closest cluster
-				double dxb = 0.0D;
-				double minDistance = Double.MAX_VALUE;
-				for (int i = 0; i < clusCount; i++) {
-					dxb = getDistance(clusters[i].getLocation(),
-							point.toDoubleArray());
-					if (dxb < minDistance) {
-						minDistance = dxb;
-					}
-				}
-				sumDistance += minDistance;
-				point.setDistanceToCluster(sumDistance);
-			}
-
-			sumDistance *= randomGen.nextDouble();
-
-			for (int i = 0; i < points.size(); i++) {
-				DataRecord point = (DataRecord) points.get(i);
-				if (point.getDistanceToCluster() >= sumDistance) {
-					clusters[clusCount] = new KmeansKernel(point);
-					break;
-				}
+		// now find the std dev of each of the attributes
+		double[] stdev = new double[mean.length];
+		for (DataRecord point : points) {
+			double[] location = point.getLocation();
+			for (int i = 0; i < location.length; i++) {
+				double diff = location[i] - mean[i];
+				stdev[i] += (diff * diff);
 			}
 		}
-		return clusters;
+		// the above figured out the variance, now take the square
+		// root to get the std dev
+		for (int i = 0; i < stdev.length; i++) {
+			stdev[i] = Math.sqrt(stdev[i] / N);
+		}
+
+		// now that we have the mean and std dev, normalize all the points
+		for (DataRecord point : points) {
+			point.backupAttValues();
+			double[] location = point.getLocation();
+			for (int i = 0; i < location.length; i++) {
+				location[i] = (location[i] - mean[i]) / (double) stdev[i];
+			}
+		}
 	}
 
 	/**
@@ -742,7 +897,7 @@ public class KmeansClusterer extends AbstractProcessor {
 	 * @param clusters
 	 * @return
 	 */
-	private KmeansKernel[] mergeClusters(KmeansKernel[] clusters) {
+	private KmeansCluster[] mergeClusters(KmeansCluster[] clusters) {
 
 		if (clusters == null || clusters.length == 0) {
 			return clusters;
@@ -752,8 +907,8 @@ public class KmeansClusterer extends AbstractProcessor {
 		boolean merged = false;
 		double r1 = 0D;
 		double r2 = 0D;
-		for (KmeansKernel cluster : clusters) {
-			cluster.setTmpRadius(-1.0D);
+		for (KmeansCluster cluster : clusters) {
+			cluster.setRadius(-1.0D);
 		}
 
 		do {
@@ -764,10 +919,10 @@ public class KmeansClusterer extends AbstractProcessor {
 				if (clusters[i] == null) {
 					continue;
 				}
-				if ((r1 = clusters[i].getTmpRadius()) < 0) {
+				if ((r1 = clusters[i].getRadius()) < 0) {
 					// scale the 1st radius with the given overlap factor
 					r1 = getOverlapFactor() * getStdDev(clusters[i]);
-					clusters[i].setTmpRadius(r1);
+					clusters[i].setRadius(r1);
 				}
 				if (r1 == 0.0) {
 					continue;
@@ -779,12 +934,11 @@ public class KmeansClusterer extends AbstractProcessor {
 					if (i == j || clusters[j] == null) {
 						continue;
 					}
-					if ((r2 = clusters[j].getTmpRadius()) < 0) {
+					if ((r2 = clusters[j].getRadius()) < 0) {
 						// scale the 1st radius with the given overlap factor
 						r2 = getOverlapFactor() * getStdDev(clusters[j]);
-						clusters[j].setTmpRadius(r2);
+						clusters[j].setRadius(r2);
 					}
-
 					// if the sum of the two scaled radii is larger than the
 					// distance between the two clusters, then the two
 					// overlap and will be merged or one absorbs the other
@@ -796,9 +950,9 @@ public class KmeansClusterer extends AbstractProcessor {
 						// i's new tmp radius
 						clusters[i].merge(clusters[j]);
 						// update the new temp radius
-						clusters[i].setTmpRadius(getOverlapFactor()
+						clusters[i].setRadius(getOverlapFactor()
 								* getStdDev(clusters[i]));
-						r1 = clusters[i].getTmpRadius();
+						r1 = clusters[i].getRadius();
 						// GC the absorbed cluster.
 						clusters[j] = null;
 						++mergeCount;
@@ -818,7 +972,7 @@ public class KmeansClusterer extends AbstractProcessor {
 
 		// the number of clusters has been reduced to original number - number
 		// absorbed or merged
-		KmeansKernel[] newClusters = new KmeansKernel[clusters.length
+		KmeansCluster[] newClusters = new KmeansCluster[clusters.length
 				- mergeCount];
 
 		// pick up the merged clusters
@@ -858,7 +1012,7 @@ public class KmeansClusterer extends AbstractProcessor {
 	 * @param cluster
 	 * @return
 	 */
-	public double getStdDev(KmeansKernel cluster) {
+	private double getStdDev(KmeansCluster cluster) {
 		if (cluster == null || cluster.getPoints().size() <= 1) {
 			return 0.0;
 		}
@@ -871,7 +1025,7 @@ public class KmeansClusterer extends AbstractProcessor {
 	 * @param cluster
 	 * @return
 	 */
-	public double getVariance(KmeansKernel cluster) {
+	private double getVariance(KmeansCluster cluster) {
 		double N = cluster.getPoints().size();
 		if (N <= 1) {
 			return 0.0;
@@ -886,14 +1040,118 @@ public class KmeansClusterer extends AbstractProcessor {
 	}
 
 	/**
+	 * Get the mean of the standard deviation across all clusters. Each
+	 * cluster's standard deviation is placed in the stdvs array; this is done
+	 * so that the calling method doesn't have to recalculate the stdvs.
+	 * 
+	 */
+	public double getCost(KmeansCluster[] clusters, double[] stdvs) {
+
+		if (clusters.length != stdvs.length) {
+			return 0;
+		}
+		int N = clusters.length;
+		double sum = 0.0;
+		for (int i = 0; i < N; i++) {
+			stdvs[i] = getStdDev(clusters[i]);
+			sum += stdvs[i];
+		}
+		return (sum / (double) N);
+	}
+
+	/**
+	 * This method is used to measure the variance or standard deviation of all
+	 * the clusters' standard deviations. This is much more sensitive than
+	 * taking the mean of the standard deviations.
+	 * 
+	 * The idea is that if the variance from one set of clusters to one with one
+	 * less cluster increases, rather dramatically, then you have too few
+	 * clusters for the one with one less cluster. For example, suppose you run
+	 * kmeans against a point space and tell kmeans to generate 10 clusters.
+	 * Then run kmeans again and have it generate 9 clusters against the same
+	 * point space. If there is a very large variance across the two sets of
+	 * clusters, then stick with the set having 10 clusters, else use the one
+	 * with 9 clusters.
+	 * 
+	 * @param clusters
+	 * @return
+	 */
+	public double getStdDevOfClusters(KmeansCluster[] clusters) {
+		double[] stdvs = new double[clusters.length];
+		double mean = getCost(clusters, stdvs);
+		double variance = 0;
+		double N = clusters.length;
+		double diff = 0;
+		for (int i = 0; i < N; i++) {
+			diff = stdvs[i] - mean;
+			variance += diff * diff;
+		}
+		return Math.sqrt(variance / N);
+	}
+
+	/**
+	 * Return the average distance between the clusters' radii
+	 * 
+	 * @param clusters
+	 * @param radiusSize
+	 * @return
+	 */
+	public double getAvgRadiusDistance(KmeansCluster[] clusters) {
+		double count = 0D;
+		double sum = 0D;
+		double r1 = 0D;
+		double r2 = 0D;
+		for (KmeansCluster cluster : clusters) {
+			cluster.setRadius(-1.0D);
+		}
+		for (int i = 0; i < clusters.length; i++) {
+			if ((r1 = clusters[i].getRadius()) < 0) {
+				r1 = getStdDev(clusters[i]);
+				clusters[i].setRadius(r1);
+			}
+			for (int j = i + 1; j < clusters.length; j++) {
+				if ((r2 = clusters[j].getRadius()) < 0) {
+					r2 = getStdDev(clusters[j]);
+					clusters[j].setRadius(r2);
+				}
+				double dist = getDistance(clusters[i].getLocation(),
+						clusters[j].getLocation());
+				sum += (dist - (r1 + r2));
+				++count;
+			}
+		}
+		return sum / count;
+	}
+
+	public double getAvgVariance(KmeansCluster[] clusters) {
+		double sum = 0.0D;
+		for (KmeansCluster cluster : clusters) {
+			sum += getVariance(cluster);
+		}
+		return sum / (double) clusters.length;
+	}
+
+	public static void sumArrays(double[] valsA, double[] valsB) {
+		for (int i = 0; i < valsA.length; i++) {
+			valsA[i] += valsB[i];
+		}
+	}
+
+	public static void subArrays(double[] valsA, double[] valsB) {
+		for (int i = 0; i < valsA.length; i++) {
+			valsA[i] -= valsB[i];
+		}
+	}
+
+	/**
 	 * Assign each cluster to its nearest neighbor
 	 * 
 	 * @param clusters
 	 */
-	public void assignClusters(KmeansKernel[] clusters) {
+	private void assignClusters(KmeansCluster[] clusters) {
 		for (int i = 0; i < clusters.length; i++) {
 			double minDist = Double.MAX_VALUE;
-			KmeansKernel minCluster = null;
+			KmeansCluster minCluster = null;
 			for (int j = 0; j < clusters.length; j++) {
 				if (i != j) {
 					double distance = getDistance(clusters[i].getLocation(),

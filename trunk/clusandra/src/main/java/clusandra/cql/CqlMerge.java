@@ -30,7 +30,7 @@ import static clusandra.cql.CqlMain.sessionState;
 import static clusandra.cql.CqlMain.cassyCluster;
 import static clusandra.cql.CqlMain.cassyDao;
 import static clusandra.cql.CqlSelect.COMMA;
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 
 import clusandra.cassandra.ClusandraDao;
 
@@ -75,8 +75,8 @@ public class CqlMerge {
 			return;
 		}
 
-		ClusandraKernel c1 = null;
-		ClusandraKernel c2 = null;
+		MicroCluster c1 = null;
+		MicroCluster c2 = null;
 		// begin the merging process
 		for (String id : clusterids) {
 			try {
@@ -94,12 +94,12 @@ public class CqlMerge {
 			if (c2 == null) {
 				// if this was the first cluster, then assign it to c2 which 
 				// will host all the merging. 
-				c2 = new ClusandraKernel(c1);
+				c2 = new MicroCluster(c1);
 			} else if (c1.isSuper()) {
 				// the just acquired cluster is a super cluster, so merge all of
 				// its microclusters with the ongoing super cluster
 				for (byte[] id2 : c1.getIDLIST()) {
-					ClusandraKernel cluster = null;
+					MicroCluster cluster = null;
 					try {
 						cluster = cassyDao.getCluster(id2);
 					} catch (Exception e) {

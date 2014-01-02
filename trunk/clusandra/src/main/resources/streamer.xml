@@ -5,21 +5,21 @@
 http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 
 	<!-- This Spring XML configuration file is used for test purposes and is 
-		meant for a StreamReader. This particular StreamReader reads the 1999 KDD 
-		Cup Data Set. Only the data set's continuous numerical attributes will be 
-		utilized. -->
+		meant for a stream generator. This particular stream generator reads the 
+		1999 KDD Cup Data Set. Only the data set's continuous numerical attributes 
+		will be utilized. -->
 
 	<!-- The QueueAgent for this StreamReader. -->
 	<bean id="queueAgent" class="clusandra.core.QueueAgent">
 		<property name="jmsTemplate" ref="jmsTemplate" />
-		<property name="jmsDestination" value="kddQueue" />
+		<property name="jmsWriteDestination" value="kddQueue" />
 		<property name="sendSize" value="1000" />
-		<property name="streamGenerator" ref="kddGenerator" />
+		<property name="processor" ref="kddGenerator" />
 	</bean>
 
 	<!-- The KDD Stream Reader reads data records from the 1999 KDD Cup Data 
 		Set and sends them on to a clusterer via the queueing system. -->
-	<bean id="kddGenerator" class="clusandra.stream.KddStreamGenerator">
+	<bean id="kddGenerator" class="clusandra.stream.FileReader">
 		<property name="queueAgent" ref="queueAgent" />
 		<!-- A map of configuration key-value pairs for this StreamReader -->
 		<property name="config">
@@ -27,9 +27,6 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 				<!-- Specify the location of the KDD Cup data set -->
 				<entry key="kddFileKey"
 					value="/Users/jfernandez/UWF/COT 6931 Project/DataSets/kddcup.data.corrected" />
-				<!-- Specify a maximum number of data records to read from the data set. 
-					The default is to read all data records -->
-				<entry key="dataSetSize" value="60000000" />
 			</map>
 		</property>
 	</bean>

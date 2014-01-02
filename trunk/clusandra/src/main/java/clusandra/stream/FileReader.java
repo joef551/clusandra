@@ -23,7 +23,6 @@
  */
 package clusandra.stream;
 
-import java.util.Map;
 import java.io.BufferedReader;
 import java.io.File;
 import java.util.Random;
@@ -55,31 +54,9 @@ import clusandra.core.AbstractProcessor;
 public class FileReader extends AbstractProcessor {
 
 	private static final Log LOG = LogFactory.getLog(FileReader.class);
-
-	private String fileKey = "fileKey";
-	private String delimKey = "delimeterKey";
 	private String fileName = null;
 	private String delimiter = "\\s+";
 	private Random random = new Random();
-
-	/**
-	 * Invoked by Spring to set the Map that contains configuration parameters
-	 * for this Processor. It also gives the Processor an opportunity to
-	 * initialize itself.
-	 * 
-	 * @param map
-	 */
-	public void setConfig(Map<String, String> map) throws Exception {
-		for (String key : map.keySet()) {
-			if (fileKey.equals(key)) {
-				setFileName(map.get(key));
-				LOG.trace("setConfig:FileName = " + getFileName());
-			} else if (delimKey.equals(key)) {
-				setDelimiter(map.get(key));
-				LOG.trace("setConfig:Delimeter = " + getDelimiter());
-			}
-		}
-	}
 
 	/**
 	 * Set the name (including path) of the file to read.
@@ -182,9 +159,8 @@ public class FileReader extends AbstractProcessor {
 			++sampleCnt;
 			DataRecord dRecord = new DataRecord(location);
 			// place the data record in the queue buffer; the buffer will
-			// automatically
-			// get flushed when it reaches its configurable capacity. However, a
-			// Processor can flush it any time.
+			// automatically get flushed when it reaches its configurable
+			// capacity. However, a Processor can flush it any time.
 			getQueueAgent().sendMessage(dRecord);
 
 			// int rT = random.nextInt(5);

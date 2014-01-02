@@ -28,7 +28,7 @@ import java.util.*;
 
 import static clusandra.cql.CqlMain.sessionState;
 import static clusandra.cql.CqlMain.cassyDao;
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 
 /**
  * CluSandra Query Language (CQL) Sum
@@ -44,7 +44,7 @@ public class CqlSum {
 			return;
 		}
 		
-		List<ClusandraKernel> clusters = null;
+		List<MicroCluster> clusters = null;
 		try {
 			clusters = cassyDao.getClusters();
 		} catch (Exception e) {
@@ -54,7 +54,7 @@ public class CqlSum {
 			return;
 		}
 		double sum = 0.0;
-		for (ClusandraKernel cluster : clusters) {
+		for (MicroCluster cluster : clusters) {
 			sum += cluster.getN();
 		}
 		sessionState.out.println("Total number of data records absorbed = "

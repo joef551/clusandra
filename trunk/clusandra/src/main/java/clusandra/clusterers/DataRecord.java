@@ -51,8 +51,9 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 
 	// these two variables are used by the kmeans clusterer
 	private transient double distanceToCluster = 0.0;
-	private transient KmeansKernel kmeansKernel = null;
+	private transient KmeansCluster cluster = null;
 	private transient boolean centroid;
+	private transient double[] m2_AttValues;
 
 	/**
 	 * A new instance of a DataRecord must use a copy or clone of the given
@@ -118,6 +119,15 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	}
 
 	/**
+	 * Used when DataRecord is treated as a point in point space
+	 * 
+	 * @return
+	 */
+	public double[] getLocation() {
+		return getValues();
+	}
+
+	/**
 	 * Returns a copy of the encapsulated vector.
 	 * 
 	 * @return an array containing all the instance attribute values
@@ -169,21 +179,21 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 	}
 
 	/**
-	 * Assign this data record to a kmeans kernel (cluster).
+	 * Assign this data record to a kmeans cluster.
 	 * 
 	 * @param kernel
 	 */
-	public void setKmeansKernel(KmeansKernel kernel) {
-		this.kmeansKernel = kernel;
+	public void setKmeansKernel(KmeansCluster cluster) {
+		this.cluster = cluster;
 	}
 
 	/**
-	 * Get the Kmeans kernel (cluster) that this point is currently assigned to.
+	 * Get the Kmeans cluster that this point is currently assigned to.
 	 * 
 	 * @return
 	 */
-	public KmeansKernel getKmeansKernel() {
-		return this.kmeansKernel;
+	public KmeansCluster getKmeansKernel() {
+		return cluster;
 	}
 
 	/**
@@ -201,5 +211,26 @@ public class DataRecord implements Serializable, Comparable<DataRecord> {
 
 	public int compareTo(DataRecord record) {
 		return Double.compare(timestamp, record.timestamp);
+	}
+
+	public void backupAttValues() {
+		if (m2_AttValues == null) {
+			m2_AttValues = new double[m_AttValues.length];
+		}
+		System.arraycopy(m_AttValues, 0, m2_AttValues, 0, m_AttValues.length);
+	}
+
+	public void restoreAttValues() {
+		if (m2_AttValues != null) {
+			System.arraycopy(m2_AttValues, 0, m_AttValues, 0,
+					m_AttValues.length);
+		}
+	}
+
+	public void reset() {
+		cluster = null;
+		distanceToCluster = 0.0D;
+		centroid = false;
+
 	}
 }

@@ -17,14 +17,11 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 	
 	<!-- The clusterer that is wired to the QueueAgent -->
 	<bean id="bTreeClusterer" class="clusandra.clusterers.BTreeClusterer">
-		<property name="config">
-			<map>
-				<entry key="overlapFactor" value="1.5" />
-				<entry key="sparseFactor" value="0.25" />
-				<entry key="lambda" value="0.5" />  
-				<entry key="maxEntries" value="3" />  
-			</map>
-		</property>
+	    <property name="queueAgent" ref="btreeAgent" />
+	    <property name="overlapFactor" value="1.0" />
+	    <property name="sparseFactor" value="0.25" />
+	    <property name="lambda" value="0.5" />
+	    <property name="maxEntries" value="3" />
 	</bean>
 
 	<!-- The connection factory for the JMS provider, which in this case is 

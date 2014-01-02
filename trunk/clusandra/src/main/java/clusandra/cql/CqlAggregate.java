@@ -33,7 +33,7 @@ import static clusandra.cql.CqlSelect.EQUALS;
 import static clusandra.cql.CqlSelect.START;
 import static clusandra.cql.CqlSelect.END;
 import static clusandra.cql.CqlSelect.checkForAnd;
-import clusandra.clusterers.ClusandraKernel;
+import clusandra.clusterers.MicroCluster;
 import clusandra.clusterers.ClusandraClusterer;
 import clusandra.utils.DateUtils;
 
@@ -128,7 +128,7 @@ public class CqlAggregate {
 				startDateMills = Double.MAX_VALUE;
 				setStartDateMills = true;
 			}
-			List<ClusandraKernel> clusters = null;
+			List<MicroCluster> clusters = null;
 
 			// retrieve all the clusters by way of the cluster recorder
 			try {
@@ -145,7 +145,7 @@ public class CqlAggregate {
 				return;
 			}
 
-			for (ClusandraKernel cluster : clusters) {
+			for (MicroCluster cluster : clusters) {
 				// skip over super clusters
 				if (!cluster.isSuper()) {
 					if (setStartDateMills && cluster.getCT() < startDateMills) {

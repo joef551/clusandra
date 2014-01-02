@@ -115,8 +115,6 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 	// this cluRunnable's unique name
 	String name = "";
 
-	boolean testing = true;
-
 	private CountDownLatch startSignal;
 	private CountDownLatch doneSignal;
 
@@ -164,6 +162,9 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 					"ERROR: This QueueAgent has not been assigned a "
 							+ "Procesor:" + getName());
 		}
+
+		LOG.debug(getName() + ": Send size = " + getSendSize());
+		LOG.debug(getName() + ": Read size = " + getReadSize());
 	}
 
 	/**
@@ -380,14 +381,18 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 	 * Start this QueueAgent.
 	 */
 	public void run() {
-		LOG.info("This QueueAgent started: " + getName());
+		LOG.info("QueueAgent '" + getName() + "' has started");
+		LOG.debug(getName() + ": read queue name = " + getJmsReadDestination());
+		if (LOG.isDebugEnabled() && this.getJmsWriteDestination() != null) {
+			LOG.debug(getName() + ": write queue name = "
+					+ getJmsWriteDestination());
+		}
+
 		try {
 			startSignal.await();
 			// See if this QueueAgent has been assigned a read and/or write
-			// queue.
-			// If it has a read queue, then begin to read from the queue, else
-			// give
-			// control to the Processor.
+			// queue. If it has a read queue, then begin to read from the queue,
+			// else give control to the Processor.
 			if (getJmsReadTemplate() == null) {
 				try {
 					getProcessor().produceCluMessages();
@@ -445,7 +450,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 	 * and messages had been previously received or 2. The max number of
 	 * messages have been received.
 	 */
-	void readQ() throws Exception {
+	private void readQ() throws Exception {
 		List<CluMessage> cluMessages = new ArrayList<CluMessage>();
 		Message msg = null;
 		Message lastMsgRead = null;
@@ -453,11 +458,10 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 			try {
 				// wait for a message (payload) to arrive - the wait time is
 				// specified in the Spring XML file for this QueueAgent
-				LOG.trace("readQ: blocking on queue");
+				LOG.trace(getName() + ": readQ, blocking on queue");
 				if ((msg = getJmsReadTemplate()
 						.receive(getJmsReadDestination())) != null) {
 
-					LOG.trace("readQ: receive returns " + msg.toString());
 					// An object message with payload has been read
 					lastMsgRead = msg;
 
