@@ -5,16 +5,14 @@ Clusandra is a data stream clustering framework that was started as part of a CS
 University of West Florida. It is written entirely in the Java programming language and leverages the 
 Spring framework and any JMS-compliant messaging system. 
 
-The general idea is to have a framework that facilitates the distributed processing of the data stream. It also allows you
-to pipeline the processing of the data stream and persist synopsis structures in the Cassandra NoSQL database. For 
-example, you can pipeline a series of modules that preprocess, cluster, and then persist the clusters to the database. 
-Using a integration framework, such as Apache Camel, you can implement a number of different pipelining designs. 
+The general idea behind CluSandra is to provide a framework that facilitates the distributed processing of the data stream. 
+
+Included is an example distributed processing workflow or pipeline that leverages the CluSandra framework in order to control or harness the data stream. The pipeline clusters/groups the data stream elements in both a temporal and spatial manner.  In other words, it groups the elements of the data stream that are both temporally and spatially similar to one another. The resulting cluster, or microclusters, are persited to the Cassandra No SQL database. The pipeline is loosely modeled after the map-reduce design pattern and incorporates the concept of a cluster-feature tree described in the BIRCH paper. 
+
+You can couple CluSandra with an integration framework, like Apacha Camel, to implement some interesting workflows or messaging design patterns. 
 
 See the trunk/doc directory for papers produced during the project and referenced works . The papers need to be 
 updated to reflect the latest work on Clusandra. 
-
-Clusandra also incorporates clustering algorithms used for harnessing the fast and evolving data stream. Much of this
-is based on the concept of cluster-feature trees and the BIRCH paper. 
 
 As I get the time, I continue to evolve Clusandra. Most recently added KMeans-based algorithms to provide better
 clusterings. Also incorporated KMeans++ for initial Kmeans seeding, triangle inequality to accelerate K-means 
