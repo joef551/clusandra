@@ -458,7 +458,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 			try {
 				// wait for a message (payload) to arrive - the wait time is
 				// specified in the Spring XML file for this QueueAgent
-				LOG.trace(getName() + ": readQ, blocking on queue");
+				LOG.debug(getName() + ": readQ, blocking on queue");
 				if ((msg = getJmsReadTemplate()
 						.receive(getJmsReadDestination())) != null) {
 

@@ -147,7 +147,6 @@ public class BTreeClusterer extends AbstractProcessor {
 	}
 
 	public void setLambda(double lambda) throws IllegalArgumentException {
-
 		if (lambda <= 0.0d || lambda >= 1.0d) {
 			throw new IllegalArgumentException(
 					"invalid lambda specified; value must be > 0.0 and < 1.0");
@@ -214,16 +213,20 @@ public class BTreeClusterer extends AbstractProcessor {
 						"processCluMessages: cluster dimension does not match tree's given dimension");
 			}
 		} else {
+			// create a BTree with a background house keeping thread
 			BTree tree = new BTree(this.getMaxEntries(),
-					cluster.getCenter().length);
+					cluster.getCenter().length, getQueueAgent()
+							.getJmsReadTemplate().getReceiveTimeout());
 			tree.setLambda(getLambda());
 			tree.setOverlapFactor(getOverlapFactor());
+			tree.setSparseFactor(this.getSparseFactor());
 			setBTree(tree);
 		}
 
-		// insert the clusters into the BTree, but first lock the tree
+		// insert the clusters into the BTree, but first make sure to lock the
+		// tree
+		getBTree().lock();
 		try {
-			getBTree().lock();
 			for (CluMessage cluMessage : cluMessages) {
 				cluster = (MicroCluster) cluMessage.getBody();
 				getBTree().insert(cluster);

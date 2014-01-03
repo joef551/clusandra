@@ -25,7 +25,8 @@ package clusandra.utils;
 
 import java.util.Arrays;
 import java.util.LinkedList;
-import java.util.ListIterator;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -95,16 +96,27 @@ public class BTree implements Runnable {
 	// become temporally irrelevant if its density falls below 25% of its
 	// maximum density.
 	private double sparseFactor = 0.25d;
+
+	// the tree's root Node
 	private Node root;
-	private int size;
+
 	// used as index to all leaf nodes.
 	private LinkedList<Node> leaves = new LinkedList<Node>();
 
 	// used for synchronizing access to the tree
 	private final ReentrantLock myLock = new ReentrantLock();
 
-	// the back ground thread that periodically cleans the treee
+	// the background thread that does the house cleaning
 	private Thread runner;
+
+	// the interval at which the tree may be updated by the tree owner
+	private long updateInterval;
+
+	// used for counting the number of non-Leaf Nodes in the tree
+	private int numNodes = 0;
+
+	// used for keeping track of when the tree was last updated.
+	private long lastModificationTime = 0L;
 
 	/**
 	 * TODO: Need to give BTree a CassandraDao so that it can persist
@@ -113,7 +125,7 @@ public class BTree implements Runnable {
 	 */
 
 	/**
-	 * Creates a new CFTree.
+	 * Creates a new BTree.
 	 * 
 	 * @param maxEntries
 	 *            maximum number of entries per node
@@ -121,17 +133,29 @@ public class BTree implements Runnable {
 	 *            the number of dimensions of the CFTree.
 	 */
 	public BTree(int maxEntries, int numDims) {
-		//this();
 		this.maxEntries = maxEntries;
 		this.numDims = numDims;
 		root = buildRoot(true);
 	}
 
 	/**
-	 * Builds a new BTree using default settings. TODO: This constructor does
-	 * not call buildRoot
+	 * Use this contructor to create a BTree with a background housekeeping
+	 * thread.
+	 * 
+	 * @param maxEntries
+	 * @param numDims
+	 * @param updateInterval
 	 */
-	public BTree() {
+	public BTree(int maxEntries, int numDims, long updateInterval) {
+		this(maxEntries, numDims);
+		this.updateInterval = updateInterval;
+		startThread();
+	}
+
+	/**
+	 * Starts the housecleaning thread.
+	 */
+	private void startThread() {
 		runner = new Thread(this, "BTree thread: ");
 		runner.setDaemon(true);
 		runner.start();
@@ -153,18 +177,12 @@ public class BTree implements Runnable {
 	}
 
 	/**
+	 * Set max number of entries per node.
 	 * 
 	 * @param maxEntries
 	 */
 	public void setMaxEntries(int maxEntries) {
 		this.maxEntries = maxEntries;
-	}
-
-	/**
-	 * @return the number of items in this tree.
-	 */
-	public int size() {
-		return size;
 	}
 
 	/**
@@ -188,10 +206,10 @@ public class BTree implements Runnable {
 	/**
 	 * Set the microcluster overlap factor.
 	 * 
-	 * @param o
+	 * @param overlapFactor
 	 */
-	public void setOverlapFactor(double o) {
-		overlapFactor = o;
+	public void setOverlapFactor(double overlapFactor) {
+		this.overlapFactor = overlapFactor;
 	}
 
 	/**
@@ -203,23 +221,37 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * Set the number of dimensions for this tree.
+	 * Returns the number of dimensions for the tree.
 	 * 
-	 * @param numDims
+	 * @return
 	 */
-	public void setNumDims(int numDims) {
-		this.numDims = numDims;
-	}
-
 	public int getNumDims() {
 		return this.numDims;
 	}
 
 	/**
-	 * Set the factor that determines if a microcluster is sparse or not; it is
-	 * a percentage of its maximum density. For example, suppose the factor is
-	 * set to 0.3, then if the microcluster's density falls below 30% of its
-	 * maximum density, it is considered sparse.
+	 * Get the tree's last modification time.
+	 * 
+	 * @return
+	 */
+	public long getLastModificationTime() {
+		return lastModificationTime;
+	}
+
+	/**
+	 * Set the tree's last modification time.
+	 * 
+	 * @param lastModificationTime
+	 */
+	public void setLastModificationTime(long lastModificationTime) {
+		this.lastModificationTime = lastModificationTime;
+	}
+
+	/**
+	 * Set the factor that determines if a microcluster is temporally sparse or
+	 * not; it is a percentage of its maximum density. For example, suppose the
+	 * factor is set to 0.3, then if the microcluster's density falls below 30%
+	 * of its maximum density, it is considered sparse.
 	 * 
 	 * @param sf
 	 *            a value that must be greater than 0.0 and less than 1.0
@@ -234,6 +266,13 @@ public class BTree implements Runnable {
 		return sparseFactor;
 	}
 
+	/**
+	 * Build the root node
+	 * 
+	 * @param asLeaf
+	 *            specifies whether root is a leaf or not.
+	 * @return
+	 */
 	private Node buildRoot(boolean asLeaf) {
 		return new Node(numDims, asLeaf);
 	}
@@ -259,6 +298,7 @@ public class BTree implements Runnable {
 					leaves.add(root);
 					root.leaf = true;
 				}
+				// make sure the root is reset if empty
 				root.clearCenter();
 			} else if (root.size() == 1 && !root.leaf) {
 				root = root.children.getFirst();
@@ -277,7 +317,7 @@ public class BTree implements Runnable {
 		if (n.isLeaf()) {
 			leaves.remove(n);
 		}
-		// and check the parent
+		// check the parent
 		condenseTree(n.parent);
 	}
 
@@ -285,10 +325,9 @@ public class BTree implements Runnable {
 	 * Empties the BTree
 	 */
 	public void clear() {
+		lock();
 		try {
-			lock();
 			root = buildRoot(true);
-			size = 0;
 			leaves.clear();
 		} finally {
 			unlock();
@@ -303,17 +342,22 @@ public class BTree implements Runnable {
 	 */
 	public void insert(MicroCluster cluster) {
 
-		LOG.debug("insert: entered with tree size = " + size);
+		LOG.debug("insert: entered with tree size = " + getNumClusters());
 		LOG.debug("insert: given cluster's size = " + cluster.getN());
 
-		// first, find the closest leaf to this cluster; start from the root
-		// node. The chooseLeaf method will update the center and N value of
-		// the 'non-leaf' nodes.
+		// update the tree's modification time.
+		touch();
+
+		// find the closest leaf to the cluster being inserted; start from the
+		// root
+		// node. The chooseLeaf method will update the center and N values of
+		// the 'non-leaf' (i.e., intermediate) nodes.
 		Node leaf = chooseLeaf(root, cluster);
 
 		Entry entry = null;
+		Entry ientry = null;
 
-		// now we need to determine which child (if any) of the chosen leaf node
+		// now determine which child (if any) of the chosen leaf node
 		// has a cluster that is closest to the given cluster. A child of a leaf
 		// is an 'Entry' that contains an actual microcluster, and a leaf may
 		// contain many children.
@@ -322,41 +366,81 @@ public class BTree implements Runnable {
 			LOG.debug("insert: leaf node has this many micro-clusters "
 					+ leaf.size());
 
-			// first find the closest cluster. restrict the search to
-			// only those microclusters that are temporally relevant to the
-			// given microcluster
+			// of the microclusters in the Leaf node, find the one closest to
+			// the cluster being inserted. restrict the search to only those
+			// microclusters that are temporally relevant to the given
+			// microcluster. mark each entry in the leaf as being relevant or
+			// not; this'll be used later
 			double minDist = Double.MAX_VALUE;
 			for (Node child : leaf.getChildren()) {
-				if (((Entry) child).isRelevant(cluster.getLST()
-						/ cluster.getN())) {
+				Entry childEntry = (Entry) child;
+				if (childEntry.isRelevant(cluster.getLST() / cluster.getN())) {
 					double dist = cluster.getDistance(child.center);
 					if (dist < minDist) {
-						entry = (Entry) child;
+						entry = childEntry;
 						minDist = dist;
 					}
 				}
+				// save any irrelevant entry
+				else if (ientry == null) {
+					ientry = childEntry;
+				}
 			}
 
-			// if the cluster only has one point, then its either an outlier
-			// or an orphan
-			if (entry != null && cluster.getN() == 1) {
-				// if it is within 2 standard deviations, then consider it
-				// an orphan
-				double radius = entry.cluster.getRadius() * 2;
-				LOG.debug("insert: procesing outlier or orphan, "
-						+ "minDist and radius = " + minDist + ", " + radius);
-				if (minDist <= radius) {
-					LOG.debug("insert: found home for orphan");
-					entry.absorb(cluster);
-					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
-					// CASSANDRA
-					return;
+			if (entry != null) {
+
+				// note: if a cluster has only one point, then its either an
+				// outlier
+				// or an orphan
+
+				// if both the cluster being inserted and the one found for it
+				// in the tree are both outliers or orphans, then simply
+				// insert the cluster
+				if (entry.cluster.getN() == 1 && cluster.getN() == 1) {
+					LOG.debug("insert: both cluster being inserted and one "
+							+ "found for it are outliers/orphans");
 				}
-			} else {
-				// Do the two clusters spatially overlap?
-				if (entry != null
-						&& cluster.spatialOverlap(entry.cluster,
-								getOverlapFactor())) {
+
+				// if the cluster being inserted is an outlier or an orphan,
+				// then see if it can fit in with the cluster of points
+				// that is closest to it, i.e., see if the orphan lies within 2
+				// standard deviations of the cluster in the tree
+				else if (cluster.getN() == 1) {
+					// if it is within 2 standard deviations, then consider it
+					// an orphan
+					double radius = entry.cluster.getRadius() * 2;
+					LOG.debug("insert: procesing outlier or orphan, "
+							+ "minDist and radius = " + minDist + ", " + radius);
+					if (minDist <= radius) {
+						LOG.debug("insert: found home for orphan");
+						entry.absorb(cluster);
+						// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+						// CASSANDRA
+						return;
+					}
+				}
+
+				// the cluster being inserted has more than one point, so it is
+				// not an orphan or outlier; however, the one found for it in
+				// the tree is an outlier or orphan. so just do the opposite of
+				// above
+				else if (entry.cluster.getN() == 1) {
+					double radius = cluster.getRadius() * 2;
+					LOG.debug("insert: procesing outlier or orphan, "
+							+ "minDist and radius = " + minDist + ", " + radius);
+					if (minDist <= radius) {
+						LOG.debug("insert: found home for orphan");
+						entry.absorb(cluster);
+						// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+						// CASSANDRA
+						return;
+					}
+				}
+
+				// finally, neither of the two is an outlier or an orphan, so
+				// see the two spatially overlap
+				else if (cluster.spatialOverlap(entry.cluster,
+						getOverlapFactor())) {
 					LOG.debug("insert: two microclusters spatially overlap");
 					entry.absorb(cluster);
 					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
@@ -365,33 +449,32 @@ public class BTree implements Runnable {
 				}
 			}
 
-			// determine if there is any entry in the leaf that is no
-			// longer relevant wrt to this new cluster. if so, replace the
-			// irrelevant entry with this new one. the irrelevant entry has
-			// already been persisted out to cassandra
-			for (Node child : leaf.getChildren()) {
-				entry = (Entry) child;
-				if (!entry.isRelevant(cluster.getLST() / cluster.getN())) {
-					LOG.debug("insert: replacing irrelevant entry");
-					entry.remove();
-					entry.parent.addChild(new Entry(cluster));
-					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
-					// CASSANDRA
-					return;
-				}
+			// if we get to here, the cluster being inserted has not found a
+			// home with an existing cluster in the tree
+
+			// if there is any entry in the leaf that is no longer relevant wrt
+			// to this new cluster, replace the irrelevant entry with this new
+			// one. the irrelevant entry has already been persisted out to
+			// cassandra
+			if (ientry != null) {
+				LOG.debug("insert: replacing irrelevant entry");
+				ientry.remove();
+				ientry.parent.addChild(new Entry(cluster));
+				// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
+				// CASSANDRA
+				return;
 			}
 
 		} else {
-			LOG.debug("insert: leaf node is empty");
+			LOG.debug("insert: chosen leaf node is empty");
 		}
 
 		// add an Entry to the Leaf node; an Entry node is hosted only by Leaf
 		// nodes and encapsulates a MicroCluster
 		entry = new Entry(cluster);
 		leaf.addChild(entry);
-		size++;
-		LOG.debug("insert: adding micro cluster, tree size = " + size);
-		LOG.debug("insert: leaf size  = " + leaf.size());
+		LOG.debug("insert: adding micro cluster");
+		// LOG.debug("insert: leaf size  = " + leaf.size());
 
 		// YOU NOW HAVE TO WRITE THE NEWLY ENTERED ENTRY'S CLUSTER OUT TO
 		// CASSANDRA
@@ -412,11 +495,9 @@ public class BTree implements Runnable {
 	 * @return
 	 */
 	public String printStats() {
-		setNumNodes(root);
-		return new String("\nnumber of nodes in tree = " + numNodes + "\n"
+		return new String("\nnumber of nodes in tree = " + countNodes() + "\n"
 				+ "number of leaves in list = " + leaves.size() + "\n"
-				+ "number of clusters in tree = " + getNumClusters() + "\n"
-				+ "number of clusters in tree = " + size + "\n");
+				+ "number of clusters in tree = " + getNumClusters() + "\n");
 	}
 
 	/**
@@ -425,31 +506,45 @@ public class BTree implements Runnable {
 	 */
 	public void run() {
 
-		// records last time of tree insertion
-		long lastClean = 0L;
+		// we check to see if the tree has been updated within two update
+		// interval times. one interval is the time amount of time the queue
+		// manager waits for messages to arrive. so, if nothing has arrived
+		// within two of these intervals, then it is safe to check the tree.
+		long interval = getUpdateInterval() * 2;
+		long currentTime = 0L;
+		long lastModTime = 0L;
 
-		LOG.trace(runner.getName() + ": started");
+		LOG.debug(runner.getName() + ": started with this interval: "
+				+ interval);
 
 		while (true) {
 			try {
-				Thread.sleep(1000);
+				Thread.sleep(interval);
 			} catch (InterruptedException ignore) {
 			}
-			// perform house cleaning if it has been 5 seconds or more since
-			// last clean job
-			if (System.currentTimeMillis() - lastClean >= 5000) {
-				// don't wait on the lock
+			currentTime = System.currentTimeMillis();
+			lastModTime = getLastModificationTime();
+			// perform house cleaning if the tree has not been updated within
+			// the minimum interval time
+			if (currentTime - lastModTime >= interval) {
 				if (!isLocked()) {
+					lock();
 					try {
-						lock();
-						clean();
-						lastClean = System.currentTimeMillis();
+						if (getLastModificationTime() == lastModTime) {
+							if (clean()) {
+								LOG.debug(runner.getName()
+										+ ": tree was condensed");
+								LOG.debug(printStats());
+							}
+						} else {
+							LOG.trace(runner.getName()
+									+ ": tree updated since lock acquired");
+						}
 					} finally {
 						unlock();
 					}
 				} else {
 					LOG.trace(runner.getName() + ": lock was taken");
-					lastClean = System.currentTimeMillis();
 				}
 			}
 		}
@@ -478,47 +573,75 @@ public class BTree implements Runnable {
 		return myLock.hasQueuedThreads();
 	}
 
-	private int numNodes = 0;
+	public long getUpdateInterval() {
+		return updateInterval;
+	}
 
-	private void setNumNodes(Node n) {
+	public void setUpdateInterval(long updateInterval) {
+		this.updateInterval = updateInterval;
+	}
+
+	/**
+	 * This method is used to set the last modification time of the tree to the
+	 * current time.
+	 */
+	private void touch() {
+		setLastModificationTime(System.currentTimeMillis());
+	}
+
+	/**
+	 * Starting from the top of the tree, count the number of Nodes (not Leaves)
+	 * in the tree.
+	 * 
+	 * @return
+	 */
+	private int countNodes() {
 		numNodes = 0;
-		if (!n.leaf) {
+		countNodes(root);
+		return numNodes;
+	}
+
+	private void countNodes(Node n) {
+		if (!n.isLeaf()) {
 			++numNodes;
-			for (Node node : n.children) {
-				setNumNodes(node);
+			for (Node node : n.getChildren()) {
+				countNodes(node);
 			}
 		}
 	}
 
 	/**
-	 * Starting from the leaves, looks for leaf entries are no longer temporally
-	 * relevant and removes them from the tree
+	 * Starting from the leaves, looks for leaf entries that are no longer
+	 * temporally relevant and removes them from the tree
 	 */
-	private void clean() {
-		if (!leaves.isEmpty()) {
-			LOG.trace("clean: checking leaves");
-			// iterate through all the leaves
-			for (Node leaf : leaves) {
-				// iterate through all the entries in this leaf
-				for (Node node : leaf.getChildren()) {
-					Entry entry = (Entry) node;
-					// if the Entry is no longer relevant, then remove it from
-					// the Leaf node
-					if (!entry.isRelevant()) {
-						entry.remove();
-					}
-				}
-				// if the leaf is empty, remove it from the tree and start the
-				// cycle over
-				if (leaf.isEmpty()) {
-					condenseTree(leaf);
-					clean();
-					return;
+	private boolean clean() {
+		boolean cleaned = false;
+		List<Node> myLeaves = new ArrayList<Node>(leaves);
+
+		// check and see if the tree is void of clusters
+		if (getNumClusters() == 0) {
+			LOG.trace("clean: tree has no clusters, its empty");
+			return cleaned;
+		}
+
+		LOG.trace("clean: checking for stale clusters");
+		// iterate through all the leaves
+		for (Node leaf : myLeaves) {
+			// iterate through all the entries in this leaf
+			List<Node> entries = new ArrayList<Node>(leaf.getChildren());
+			for (Node node : entries) {
+				Entry entry = (Entry) node;
+				if (!entry.isRelevant()) {
+					entry.remove();
 				}
 			}
-		} else {
-			LOG.trace("clean: no leaves to check");
+			// if the leaf is empty, remove it from the tree
+			if (leaf.isEmpty()) {
+				cleaned = true;
+				condenseTree(leaf);
+			}
 		}
+		return cleaned;
 	}
 
 	/**
@@ -561,11 +684,11 @@ public class BTree implements Runnable {
 	 * @param nn
 	 */
 	private void adjustTree(Node n, Node nn) {
-		LOG.debug("adjustTree: entered, root = " + (n == root));
+		LOG.trace("adjustTree: entered, root = " + (n == root));
 		if (n == root) {
 			if (nn != null) {
 				// build new non-leaf root and add children.
-				LOG.debug("adjustTree: building new root");
+				LOG.trace("adjustTree: building new root");
 				root = buildRoot(false);
 				root.addChild(n);
 				root.addChild(nn);
@@ -590,7 +713,7 @@ public class BTree implements Runnable {
 	 */
 	private Node[] splitNode(Node n) {
 
-		LOG.debug("splitNode: entered");
+		LOG.trace("splitNode: entered");
 
 		// create an array of two nodes, with the first element being
 		// the node to split and the second a new entry. note that
@@ -650,8 +773,8 @@ public class BTree implements Runnable {
 			}
 		}
 
-		LOG.debug("splitNode: nn[0] size = " + nn[0].size());
-		LOG.debug("splitNode: nn[1] size = " + nn[1].size());
+		LOG.trace("splitNode: nn[0] size = " + nn[0].size());
+		LOG.trace("splitNode: nn[1] size = " + nn[1].size());
 		return nn;
 	}
 
