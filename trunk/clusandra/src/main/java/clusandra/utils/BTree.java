@@ -36,19 +36,34 @@ import static clusandra.utils.DateUtils.getClusandraDate;
 
 /**
  * Implementation of a BTree for objects that represent microclusters or cluster
- * features (CFs), thus also referred to as a CFTree. The tree and its nodes
- * evolve as microclusters are inserted into the tree. For example, a
- * microcluster that is being inserted may be absorbed by its closest
- * microcluster in the tree. Each non-leaf node in the tree represents a cluster
- * (subtree) and each leaf node is an actual microcluster. microclusters absorb
- * other microclusters and are removed from the tree when they become sparse.
+ * features (CFs), thus also referred to as a CFTree. The tree, which can be
+ * viewed as a dendogram, and its nodes evolve as microclusters are inserted
+ * into and removed from the tree. For example, a microcluster that is being
+ * inserted may be absorbed by its closest microcluster in the tree or simply
+ * inserted as a new microcluster.
  * 
- * Absorption is controlled by the overlap factor. For example, if the factor is
- * set to 1.0, then a microcluster, which is being inserted, will be absorbed by
- * its nearest microcluster iff the two microcluster's radii overlap. If the
- * factor is set to 0.5, then they'll overlap iff 0.5 of their radii overlap. So
- * in the latter case, the microclusters must be closer to one another than in
- * the former case.
+ * Each non-Leaf node in the tree represents a macrocluster (subtree or segment
+ * of the dendogram) and each leaf node is a collection of actual microclusters
+ * within a macrocluster. microclusters are removed from the tree when they
+ * become temporally sparse.
+ * 
+ * When a microcluster absorbs another microcluster, the owning macrocluster's
+ * statistics are updated. The macroclusters are also updated whenever a
+ * microcluster is added to and removed from the tree.
+ * 
+ * A microcluster that contains only one data point (N == 1) is considered
+ * either an orphan or outlier. An orphan pertains to a microcluster having more
+ * than one data point (a.k.a., group), and it should eventually rejoin its
+ * group. On the other hand, an outlier does not pertain to any one particular
+ * group and will die on the vine; sort of speak. That is to say that it will
+ * become temporally irrelevant without ever having been persited to the DB.
+ * 
+ * Absorption or adoption is controlled by the overlap factor. For example, if
+ * the factor is set to 1.0, then a microcluster, which is being inserted, will
+ * be absorbed by its nearest microcluster iff the two microcluster's radii
+ * overlap and they are temporally relevant. If the factor is set to 0.5, then
+ * they'll overlap iff 0.5 of their radii overlap. So in the latter case, the
+ * microclusters must be closer to one another than in the former case.
  * 
  * Any time a microcluster is updated, it will be written out to the DB. It is
  * removed from the tree when it becomes sparse. Sparseness or its temporal
@@ -66,6 +81,9 @@ import static clusandra.utils.DateUtils.getClusandraDate;
  * Citation: Feng Cao, Martin Ester, Weining Qian, Aoying Zhou: Density-Based
  * Clustering over an Evolving Data Stream with Noise. SDM 2006
  * 
+ * The BTree includes a house keeping thread that removes temporally irrelevant
+ * microclusters from the tree. The thread performs the house keeping only
+ * during quiet times; i.e., the tree is not being updated.
  * 
  * This class is not thread-safe.
  * 
@@ -76,11 +94,15 @@ public class BTree implements Runnable {
 
 	private static final Log LOG = LogFactory.getLog(BTree.class);
 
+	// the default maximum number of entries (children) that can occupy a tree
+	// node.
 	public static final int MAX_ENTRIES = 5;
 
-	// the maximum number of entries (children) that can occupy a tree node.
 	private int maxEntries = MAX_ENTRIES;
+
+	// the default number of dimensions for the tree's entires.
 	private int numDims = 2;
+
 	// The overlap factor controls the merging of microclusters. If the factor
 	// is set to 1.0, then the two microclusters will merge iff their radii
 	// overlap. If the factor is set to 0.5, then the two will merge iff
@@ -92,15 +114,15 @@ public class BTree implements Runnable {
 	// a microcluster will become irrelevant.
 	private double lambda = 0.5d;
 	// the density, as a factor of maximum density, that a cluster is considered
-	// irrelevant. So if the factor is set to 0.25, then the microcluster will
-	// become temporally irrelevant if its density falls below 25% of its
+	// irrelevant. So if the sparse factor is set to 0.25, then the microcluster
+	// will become temporally irrelevant if its density falls below 25% of its
 	// maximum density.
 	private double sparseFactor = 0.25d;
 
 	// the tree's root Node
 	private Node root;
 
-	// used as index to all leaf nodes.
+	// used as an index to all of the leaf nodes.
 	private LinkedList<Node> leaves = new LinkedList<Node>();
 
 	// used for synchronizing access to the tree
@@ -221,18 +243,16 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * Returns the number of dimensions for the tree.
 	 * 
-	 * @return
+	 * @return the number of dimensions for the tree.
 	 */
 	public int getNumDims() {
 		return this.numDims;
 	}
 
 	/**
-	 * Get the tree's last modification time.
 	 * 
-	 * @return
+	 * @return the tree's last modification time.
 	 */
 	public long getLastModificationTime() {
 		return lastModificationTime;
@@ -262,6 +282,10 @@ public class BTree implements Runnable {
 		}
 	}
 
+	/**
+	 * 
+	 * @return the sparse factor
+	 */
 	public double getSparseFactor() {
 		return sparseFactor;
 	}
@@ -336,7 +360,7 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * Inserts the given cluster into the BTree.
+	 * Inserts the given microcluster into the BTree.
 	 * 
 	 * @param cluster
 	 */
@@ -349,9 +373,8 @@ public class BTree implements Runnable {
 		touch();
 
 		// find the closest leaf to the cluster being inserted; start from the
-		// root
-		// node. The chooseLeaf method will update the center and N values of
-		// the 'non-leaf' (i.e., intermediate) nodes.
+		// root node. The chooseLeaf method will update the center and N values
+		// of the 'non-leaf' (i.e., intermediate) nodes.
 		Node leaf = chooseLeaf(root, cluster);
 
 		Entry entry = null;
@@ -438,7 +461,7 @@ public class BTree implements Runnable {
 				}
 
 				// finally, neither of the two is an outlier or an orphan, so
-				// see the two spatially overlap
+				// see if the two spatially overlap
 				else if (cluster.spatialOverlap(entry.cluster,
 						getOverlapFactor())) {
 					LOG.debug("insert: two microclusters spatially overlap");
@@ -461,7 +484,9 @@ public class BTree implements Runnable {
 				ientry.remove();
 				ientry.parent.addChild(new Entry(cluster));
 				// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
-				// CASSANDRA
+				// CASSANDRA, BUT ONLY IF THE CLUSTER BEING INSERTED HAS MORE
+				// THAN ONE POINT. CLUSTERS IN THE TREE THAT HAVE ONLY ONE POINT
+				// WILL DIE ON THE VINE OR GET ABSORBED
 				return;
 			}
 
@@ -657,8 +682,9 @@ public class BTree implements Runnable {
 		if (n.leaf) {
 			return n;
 		}
-		// else, continue working down through the tree until a suitable
-		// leaf is found
+		// else, continue working down the appropriate segment of the tree until
+		// a suitable leaf is found. the appropriate segement is the one whose
+		// center of gravity is closest to the given microcluster
 		double minDistance = Double.MAX_VALUE;
 		Node next = null;
 		for (Node child : n.children) {
@@ -669,22 +695,29 @@ public class BTree implements Runnable {
 				next = child;
 			}
 		}
-		// if this is a non-leaf node, update its center of gravity. we do
-		// this because the given cluster will be added to this node's subtree
+		// if this is a non-leaf node, update its center of gravity and
+		// microcluster count. we do this because the given cluster will end
+		// up in a Leaf node that pertains to the segement of the tree rooted by
+		// this Node.
 		if (!next.leaf) {
 			next.addCenter(c.getN(), c.getCenter());
+		} else {
+			return next;
 		}
 		return chooseLeaf(next, c);
 	}
 
 	/**
-	 * Called immediately after a leaf has been split.
+	 * Called immediately after a leaf has been split to adjust the tree
+	 * accordingly.
 	 * 
 	 * @param n
 	 * @param nn
 	 */
 	private void adjustTree(Node n, Node nn) {
 		LOG.trace("adjustTree: entered, root = " + (n == root));
+
+		// check and see if the root is being split
 		if (n == root) {
 			if (nn != null) {
 				// build new non-leaf root and add children.
@@ -716,8 +749,8 @@ public class BTree implements Runnable {
 		LOG.trace("splitNode: entered");
 
 		// create an array of two nodes, with the first element being
-		// the node to split and the second a new entry. note that
-		// the node being split can either be a node or leaf-node
+		// the node to split and the second a new entry to make more space. note
+		// that the node being split can either be a node or leaf-node
 		Node[] nn = new Node[] { n, new Node(n.center.length, n.leaf) };
 
 		// the new node's parent is the same as the one being split
@@ -733,19 +766,19 @@ public class BTree implements Runnable {
 		// temporarily adopt the children of the node being split
 		LinkedList<Node> children = new LinkedList<Node>(nn[0].children);
 
-		// reset the node being split up
+		// reset the node that is being split up
 		nn[0].children.clear();
 		nn[0].clearCenter();
 
 		// distribute the children across the two nodes, making sure
 		// those closest to one another end up in the same node
 
-		// remove the first child, and add it to the first node
+		// remove the first adopted child, and add it to the first node
 		Node lastNode = children.removeFirst();
 		nn[0].addChild(lastNode);
 
-		// remove the child that is furthest away from the one just
-		// removed
+		// remove the adopted child that is furthest away from the one just
+		// removed...
 		double maxDist = Double.NEGATIVE_INFINITY;
 		Node maxNode = null;
 		for (Node child : children) {
@@ -756,12 +789,12 @@ public class BTree implements Runnable {
 				maxNode = child;
 			}
 		}
-		// add the furthest one to the second node
+		// ... and add it to the second node
 		nn[1].addChild(maxNode);
 		children.remove(maxNode);
 
-		// remove each remaining child and add it to the node to which it is
-		// closest
+		// remove each remaining adopted child and add it to the node to which
+		// it is closest
 		while (!children.isEmpty()) {
 			lastNode = children.removeFirst();
 			double d0 = getNearestDistance(lastNode, nn[0].children);
@@ -779,9 +812,8 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * Returns the number of clusters in the tree
 	 * 
-	 * @return
+	 * @return the number of microclusters in the tree
 	 */
 	private int getNumClusters() {
 		int numClusters = 0;
@@ -794,12 +826,11 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * Get the distance of the nearest Node in the list to that of the given
-	 * Node
 	 * 
 	 * @param node
 	 * @param nodes
-	 * @return
+	 * @return the distance of the nearest Node in the list to that of the given
+	 *         Node
 	 */
 	private static double getNearestDistance(Node node, LinkedList<Node> nodes) {
 		double minDistance = Double.MAX_VALUE;
@@ -812,10 +843,11 @@ public class BTree implements Runnable {
 	}
 
 	/**
-	 * There are two types of nodes in the tree: Node and Leaf.
+	 * There are three types of nodes in the tree: Node, Leaf and Entry.
 	 * 
-	 * A Node contains other Nodes, while a Leaf contains one or more Entry
-	 * nodes, which encapsulates a microcluster
+	 * A Node contains other Nodes and is considered an intermediate node in the
+	 * tree. A Leaf node only contains Entry nodes, and an Entry node
+	 * encapsulates a microcluster
 	 * 
 	 * @author jfernandez
 	 * 
@@ -843,21 +875,44 @@ public class BTree implements Runnable {
 			return leaf;
 		}
 
+		/**
+		 * 
+		 * @return a list of this node's children. Depending on this node's
+		 *         type, the children can be other Nodes, Leaves, or Entries.
+		 */
 		LinkedList<Node> getChildren() {
 			return children;
 		}
 
+		/**
+		 * Give this Node a child Node.
+		 * 
+		 * @param child
+		 */
 		void addChild(Node child) {
 			addCenter(child.N, child.LS);
 			children.add(child);
 			child.parent = this;
 		}
 
+		/**
+		 * Remove a Node from this Node.
+		 * 
+		 * @param child
+		 */
 		void removeChild(Node child) {
 			subCenter(child.N, child.LS);
 			children.remove(child);
 		}
 
+		/**
+		 * Adds to the number of microclusters that reside in the tree segement
+		 * rooted at this Node. It also updates accordingly the tree segment's
+		 * center of gravity.
+		 * 
+		 * @param nN
+		 * @param nC
+		 */
 		void addCenter(double nN, double[] nC) {
 			N += nN;
 			for (int i = 0; i < LS.length; i++) {
@@ -866,6 +921,14 @@ public class BTree implements Runnable {
 			}
 		}
 
+		/**
+		 * Reduces the number of microclusters that reside in the tree segement
+		 * rooted at this Node. It also updates accordingly the tree segment's
+		 * center of gravity.
+		 * 
+		 * @param nN
+		 * @param nC
+		 */
 		void subCenter(double nN, double[] nC) {
 			N -= nN;
 			for (int i = 0; i < center.length; i++) {
@@ -874,12 +937,19 @@ public class BTree implements Runnable {
 			}
 		}
 
+		/**
+		 * Clears the Node's center of gravity and number of children.
+		 */
 		void clearCenter() {
 			N = 0.0d;
 			Arrays.fill(center, 0.0d);
 			Arrays.fill(LS, 0.0d);
 		}
 
+		/**
+		 * 
+		 * @return the number of child Nodes residing in this node.
+		 */
 		int size() {
 			return children.size();
 		}
@@ -907,6 +977,10 @@ public class BTree implements Runnable {
 			addCenter(cluster.getN(), cluster.getLS());
 		}
 
+		/**
+		 * 
+		 * @return the microcluster encapsulated by this Entry.
+		 */
 		MicroCluster getCluster() {
 			return cluster;
 		}
@@ -915,9 +989,11 @@ public class BTree implements Runnable {
 			return density;
 		}
 
-		/*
-		 * Remember that chooseLeaf will have added the given target cluster to
-		 * all the parent nodes!
+		/**
+		 * Have the encapsulated MicroCluster absorb the given cluster.
+		 * 
+		 * Note that chooseLeaf() will have added the given target cluster's
+		 * statistics to all the parent nodes!
 		 */
 		void absorb(MicroCluster target) {
 			// before absorbing the given cluster, set the new density based on
@@ -929,7 +1005,10 @@ public class BTree implements Runnable {
 			addCenter(cluster.getN(), cluster.getLS());
 		}
 
-		// Remove this Entry from the tree.
+		/**
+		 * Removes this Entry node from the BTree.
+		 * 
+		 */
 		void remove() {
 			parent.removeChild(this);
 			Node nextParent = parent.parent;
