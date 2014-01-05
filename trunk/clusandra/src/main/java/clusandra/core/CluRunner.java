@@ -45,10 +45,11 @@ public class CluRunner {
 
 	private static final Log LOG = LogFactory.getLog(CluRunner.class);
 
-	// the default name for the Spring XML file that will be searched.
+	// the default name for the Spring XML file; i.e., application context file.
 	private String springFile = "streamer.xml";
 	private String[] args = null;
 
+	// latches used to communicate with the Runnables
 	CountDownLatch startSignal = new CountDownLatch(1);
 	CountDownLatch doneSignal = null;
 
@@ -89,7 +90,8 @@ public class CluRunner {
 		}
 
 		try {
-			// Read all the CluRunnable beans and invoke their cluRun() method
+			// Read all the CluRunnable beans in the application context file
+			// and invoke their cluRun() method
 			Map<String, CluRunnable> runnables = applContext
 					.getBeansOfType(CluRunnable.class);
 
