@@ -41,10 +41,6 @@ import static clusandra.utils.BTree.MAX_ENTRIES;
  * maintains the microclusters in a BTree from where they are persisted to the
  * Cassandra DB.
  * 
- * Microclusters that are to be inserted into the tree can be absorbed by
- * existing microclusters. Also, microclusters being inserted can replace
- * existing microclusters that are no longer temporally relevant.
- * 
  * @author jfernandez
  * 
  */
