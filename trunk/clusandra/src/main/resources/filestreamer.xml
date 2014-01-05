@@ -19,7 +19,7 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 
 	<bean id="fileReader" class="clusandra.stream.FileReader">
 		<property name="queueAgent" ref="fileAgent" />
-		<property name="fileName" value="/Users/jfernandez/datasets/dim/dim3.txt" />
+		<property name="fileName" value="/Users/jfernandez/datasets/dim/dim2.txt" />
 	</bean>
 
 	<!-- The connection factory for the JMS provider -->

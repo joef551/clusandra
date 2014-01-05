@@ -14,8 +14,8 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 		<property name="jmsReadDestination" value="fileQueue" />
 		<property name="jmsWriteTemplate" ref="jmsTemplate" />
 		<property name="jmsWriteDestination" value="treeQueue" />
-		<property name="readSize" value="2000" />
-		<property name="sendSize" value="2000" />
+		<property name="readSize" value="1000" />
+		<property name="sendSize" value="500" />
 		<property name="processor" ref="kmeansClusterer" />
 	</bean>
 	

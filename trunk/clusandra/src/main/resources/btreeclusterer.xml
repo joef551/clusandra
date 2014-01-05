@@ -11,7 +11,7 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 	<bean id="btreeAgent" class="clusandra.core.QueueAgent">
 		<property name="jmsReadTemplate" ref="jmsTemplate" />
 		<property name="jmsReadDestination" value="treeQueue" />
-		<property name="readSize" value="2000" />
+		<property name="readSize" value="100" />
 		<property name="processor" ref="bTreeClusterer" />
 	</bean>
 	
