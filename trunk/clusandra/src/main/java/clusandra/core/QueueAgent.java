@@ -63,8 +63,8 @@ import java.util.concurrent.CountDownLatch;
  * consumed from the read queue. The Processor must process the consumed
  * messages in a timely manner. After processing the consumed messages, and
  * before giving control back to the QueueAgent, the Processor may give the
- * QueueAgent messages that it produces to send to the write queue; these
- * produced messages are sent to the next Processor in the stream work flow.
+ * QueueAgent messages to send to the write queue; these produced messages are
+ * sent to the next Processor in the stream work flow.
  * 
  * A QueueAgent may only be wired to a write queue, in which case it gives full
  * control to the Processor. For example, a stream generator is an example of a
@@ -73,14 +73,14 @@ import java.util.concurrent.CountDownLatch;
  * The KmeansClusterer is an example of a Processor that consumes messages from
  * a read queue and produces messages to a write queue. The messages it consumes
  * are multivariate vectors that are produced by a stream generator. The
- * messages that it produces are in the form of micro-clusters that are sent to
- * a Processor called a BTreeClusterer. The BTreeClusterer maintains
- * micro-clusters in a b-tree from where they are also persisted to the
- * Cassandra DB. The BTreeClusterer will merge micro-clusters that are both
- * spatially and temporally similar. The general idea is that the processing, or
- * in this case clustering, of the data stream can be fanned out or balanced
- * across multiple instances of a Processor. Those instances then send their
- * resulting micro-clusters to the BTreeClusterer, which is a reducer of sorts.
+ * messages that it produces are in the form of microclusters that are sent to a
+ * Processor called a BTreeClusterer. The BTreeClusterer maintains microclusters
+ * in a b-tree from where they are also persisted to the Cassandra DB. The
+ * BTreeClusterer will merge microclusters that are both spatially and
+ * temporally similar. The general idea is that the processing, or in this case
+ * clustering, of the data stream can be fanned out or balanced across multiple
+ * instances of a Processor. Those instances then send their resulting
+ * microclusters to the BTreeClusterer, which is like a reducer of sorts.
  * 
  * Another example of a Processor would be a component that executes a running
  * query on the data stream. The query would be based on a sliding or damped
@@ -104,7 +104,8 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 	String jmsWriteDestination;
 	// The default max size of the send buffer
 	int sendSize = 20;
-	// the default maximum number of messages to read
+	// the default maximum number of messages to read. keep in mind that a
+	// single message can be either a CluMessage or a collection of CluMessages
 	int readSize = 20;
 	// The send buffer
 	Vector<Serializable> sendBuffer = new Vector<Serializable>();
@@ -115,6 +116,7 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 	// this cluRunnable's unique name
 	String name = "";
 
+	// Latches used to communicate with the CluRunner
 	private CountDownLatch startSignal;
 	private CountDownLatch doneSignal;
 
@@ -381,15 +383,26 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 	 * Start this QueueAgent.
 	 */
 	public void run() {
+
 		LOG.info("QueueAgent '" + getName() + "' has started");
-		LOG.debug(getName() + ": read queue name = " + getJmsReadDestination());
+		LOG.info(getName() + ": read queue name = " + getJmsReadDestination());
+
 		if (LOG.isDebugEnabled() && this.getJmsWriteDestination() != null) {
 			LOG.debug(getName() + ": write queue name = "
 					+ getJmsWriteDestination());
 		}
 
 		try {
+			// wait for the CluRunner to give us the all clear to proceed
 			startSignal.await();
+		} catch (InterruptedException exc) {
+			LOG.error(getName()
+					+ ": received InterruptedException while waiting on "
+					+ "startSignal countdown latch");
+			return;
+		}
+
+		try {
 			// See if this QueueAgent has been assigned a read and/or write
 			// queue. If it has a read queue, then begin to read from the queue,
 			// else give control to the Processor.
@@ -411,11 +424,10 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 					exc.printStackTrace(System.out);
 				}
 			}
+		} finally {
 			doneSignal.countDown();
-		} catch (InterruptedException exc) {
-			LOG.error("received InterruptedException exception");
 		}
-		LOG.info("This QueueAgent completed: " + getName());
+		LOG.info(getName() + " completed");
 		return;
 	}
 
@@ -423,7 +435,15 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 		return sendBuffer;
 	}
 
-	// Send the contents of the message buffer to the JMS provider.
+	/*
+	 * Send the contents of the message buffer to the JMS provider.
+	 * 
+	 * If the buffer has only one message, then send the message, else send the
+	 * buffer. Sending the buffer as a collection of messages cuts down
+	 * on sends and receives to and from the JMS system.
+	 */
+	private Serializable msg2Send = null;
+
 	private int sendQ() throws JmsException {
 
 		if (getSendBuffer().isEmpty()) {
@@ -431,11 +451,13 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 		}
 		int sendSize = getSendBuffer().size();
 
+		msg2Send = (sendSize > 1) ? getSendBuffer() : getSendBuffer().get(0);
+
 		getJmsWriteTemplate().send(getJmsWriteDestination(),
 				new MessageCreator() {
 					public Message createMessage(Session session)
 							throws JMSException {
-						return session.createObjectMessage(getSendBuffer());
+						return session.createObjectMessage(msg2Send);
 					}
 				});
 
@@ -462,9 +484,10 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 				if ((msg = getJmsReadTemplate()
 						.receive(getJmsReadDestination())) != null) {
 
-					// An object message with payload has been read
+					// An object message has been read from the queue
 					lastMsgRead = msg;
 
+					// lets see what the cat dragged in
 					if (!(msg instanceof ObjectMessage)) {
 						LOG.error("ERROR: message received was not of type ObjectMessage");
 						throw new MessageConversionException(
@@ -472,33 +495,47 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 					}
 
 					Object ob1 = ((ObjectMessage) msg).getObject();
-					if (!(ob1 instanceof Vector)) {
-						LOG.error("ERROR: object received was not of type Vector");
+
+					if (!(ob1 instanceof Vector)
+							&& !(ob1 instanceof CluMessage)) {
+						LOG.error("ERROR: object received was neither a "
+								+ "Vector nor a CluMessage");
 						throw new MessageConversionException(
 								"object received was not of type Vector");
 					}
-					@SuppressWarnings("rawtypes")
-					Vector v2 = (Vector) ob1;
 
-					ob1 = v2.get(0);
+					// if a single CluMessage arrived, then simply place it in
+					// the read buffer
 					if (ob1 instanceof CluMessage) {
-						for (Object ob2 : v2) {
-							if (ob2 instanceof CluMessage) {
-								cluMessages.add((CluMessage) ob2);
-							} else {
-								LOG.error("ERROR: object in received "
-										+ "Vector was not of type CluMessage");
-								throw new MessageConversionException(
-										"object in received  "
-												+ "Vector was not of type CluMessage");
-							}
-						}
+						cluMessages.add((CluMessage) ob1);
+					}
+					// if it wasn't a single CluMessage, then it must have been
+					// a collection of CluMessages
+					else {
 
-					} else {
-						LOG.error("ERROR: object in received Vector was of unknow type");
-						throw new MessageConversionException(
-								"object in received  "
-										+ "Vector was of uknown type");
+						@SuppressWarnings("rawtypes")
+						Vector v2 = (Vector) ob1;
+
+						ob1 = v2.get(0);
+						if (ob1 instanceof CluMessage) {
+							for (Object ob2 : v2) {
+								if (ob2 instanceof CluMessage) {
+									cluMessages.add((CluMessage) ob2);
+								} else {
+									LOG.error("ERROR: object in received "
+											+ "Vector was not of type CluMessage");
+									throw new MessageConversionException(
+											"object in received  "
+													+ "Vector was not of type CluMessage");
+								}
+							}
+
+						} else {
+							LOG.error("ERROR: object in received Vector was of unknow type");
+							throw new MessageConversionException(
+									"object in received  "
+											+ "Vector was of uknown type");
+						}
 					}
 				}
 
@@ -521,7 +558,6 @@ public class QueueAgent implements CluRunnable, Runnable, BeanNameAware,
 						cluMessages.clear();
 					}
 				}
-
 			} catch (JmsException exc) {
 				LOG.error("ERROR, received this JmsException when receiving: "
 						+ exc.getMessage());
