@@ -34,7 +34,7 @@ import static clusandra.cql.CqlSelect.START;
 import static clusandra.cql.CqlSelect.END;
 import static clusandra.cql.CqlSelect.checkForAnd;
 import clusandra.clusterers.MicroCluster;
-import clusandra.clusterers.ClusandraClusterer;
+import clusandra.clusterers.KmeansClusterer;
 import clusandra.utils.DateUtils;
 
 /**
@@ -164,7 +164,7 @@ public class CqlAggregate {
 		}
 
 		sessionState.out.println("aggregation process started, please wait");
-		ClusandraClusterer clusterer = new ClusandraClusterer();
+		KmeansClusterer clusterer = new KmeansClusterer();
 		clusterer.setOverlapFactor(overlapFactor);
 		clusterer.setClusterExpireTime(clusterExpireTime);
 		clusterer.setClusandraDao(cassyDao);

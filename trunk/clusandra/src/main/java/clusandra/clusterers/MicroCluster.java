@@ -23,8 +23,6 @@
  */
 package clusandra.clusterers;
 
-import weka.core.Instance;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -40,8 +38,8 @@ import org.apache.commons.logging.LogFactory;
 import java.util.Formatter;
 
 /**
- * This class represents a CluSandra cluster. If the IDLIST is empty, then it is
- * a Microcluster, else it is a Super Macro Cluster. All clusters are stored in
+ * This class represents a CluSandra microcluster. If the IDLIST is empty, then it is
+ * a MicroCluster, else it is a Super Macro Cluster. All clusters are stored in
  * Cassandra.
  * 
  * Based on micro cluster, as defined by Aggarwal et al, On Clustering Massive
@@ -475,6 +473,11 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 			SS[i] += record.value(i) * record.value(i);
 		}
 		LAT = record.getTimestamp();
+		// if this is the first data record, then have the creation time of the
+		// microcluster also be the creation time of this first data record
+		if (N == 1.0d) {
+			CT = LAT;
+		}
 		touch();
 	}
 
@@ -517,9 +520,8 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 	 * @return this cluster's centroid
 	 */
 	public double[] getCenter() {
-		int len = LS.length;
-		double res[] = new double[len];
-		for (int i = 0; i < len; i++) {
+		double res[] = new double[LS.length];
+		for (int i = 0; i < LS.length; i++) {
 			res[i] = LS[i] / N;
 		}
 		return res;
@@ -534,7 +536,6 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 	public synchronized double getRadius() {
 		return (N == 1) ? 0.0 : getDeviation();
 	}
-
 
 	/**
 	 * Returns true if the passed in cluster is the same, ID-wise, as this
@@ -601,7 +602,7 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 		return Math.sqrt((SST / N) - Math.pow((LST / N), 2));
 	}
 
-	// Get the root mean squared deviation (standard deviation)
+	// Get the root mean squared deviation (standard deviation, or radius)
 	private double getDeviation() {
 		double[] variance = getVarianceVector();
 		double sumOfDeviation = 0.0;
@@ -625,24 +626,10 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 	}
 
 	/**
-	 * See interface <code>Cluster</code>
-	 * 
-	 * @param point
-	 * @return
-	 */
-	public double getInclusionProbability(Instance instance) {
-		// not used within clusandra
-		return 0.0d;
-	}
-
-	/**
-	 * Check if this cluster and the other cluster lived within their same
-	 * active time horizons. That is, determine if the two clusters reside
-	 * within the same active time horizon
-	 * 
 	 * @param other
 	 * @param expireTime
-	 * @return
+	 * @return true if the two clusters reside within the same active time
+	 *         horizon
 	 */
 	public boolean withinTimeHorizon(MicroCluster other, double expireTime) {
 
@@ -798,7 +785,7 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 
 	/**
 	 * Returns the average distance between all the clusters in the given list.
-	 * This is essentially telling us the density of the clusters within their
+	 * This is essentially telling us the temporalDensity of the clusters within their
 	 * time horizon.
 	 * 
 	 * @param clusters
@@ -822,15 +809,14 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 		return (distance / distanceCounter);
 	}
 
-	public double getCenterDistance(Instance instance) {
-		double distance = 0.0;
-		// get the center through getCenter so subclass have a chance
-		double[] center = getCenter();
-		for (int i = 0; i < center.length; i++) {
-			double d = center[i] - instance.value(i);
-			distance += d * d;
-		}
-		return Math.sqrt(distance);
+	/**
+	 * 
+	 * @param other
+	 * @return the distance from this cluster's center to the center of the
+	 *         given cluster
+	 */
+	public double getCenterDistance(MicroCluster other) {
+		return getDistance(getCenter(), other.getCenter());
 	}
 
 	/**
@@ -840,11 +826,8 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 	 * @return true if the two clusters temporally overlap
 	 */
 	public boolean temporalOverlap(MicroCluster target) {
-		if ((getCT() >= target.getCT() && getCT() <= target.getLAT())
-				|| (getLAT() >= target.getCT() && getLAT() <= target.getLAT())) {
-			return true;
-		}
-		return false;
+		return ((getCT() >= target.getCT() && getCT() <= target.getLAT()) || (getLAT() >= target
+				.getCT() && getLAT() <= target.getLAT()));
 	}
 
 	/**
@@ -857,27 +840,32 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 	public boolean spatialOverlap(MicroCluster target, double overlapFactor) {
 		double sR = overlapFactor * getRadius();
 		double tR = overlapFactor * target.getRadius();
-		double dist = getDistance(target.getCenter());
-		//System.out.println("sR, tR, dist = " + sR + ", " + tR + ", " + dist);
+		double dist = getCenterDistance(target);
 		return (((sR + tR) - dist) > 0);
 	}
 
+	/**
+	 * 
+	 * @param a
+	 * @param b
+	 * @return the euclidean distance between the two given points
+	 */
 	public static double getDistance(double[] a, double[] b) {
 		if (a.length != b.length) {
 			throw new RuntimeException(
-					"Attempting to compare two clusterables of different dimensions");
+					"Attempting to compare two clusterables "
+							+ "of different dimensions");
 		}
 		double sum = 0;
 		for (int i = 0; i < a.length; i++) {
-			double diff = a[i] - b[i];
-			sum += diff * diff;
+			sum += Math.pow((a[i] - b[i]), 2);
 		}
 		return Math.sqrt(sum);
 	}
 
 	/**
-	 * * This method is passed a list of supercolumns that represent a cluster
-	 * (i.e.,MicroCluster). From the supercolumns, it creates and returns a
+	 * This method is passed a list of Cassandra supercolumns that represent a
+	 * MicroCluster. From the supercolumns, it creates and returns a
 	 * MicroCluster.
 	 * 
 	 * @param cluster
@@ -971,21 +959,6 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 		return clusKernel;
 	}
 
-	private String printCenter() {
-		String s1 = new String(" \ncenter=[");
-		double[] center = getCenter();
-		for (int i = 0; i < center.length; i++) {
-			if (i == center.length - 1) {
-				s1 += (new Formatter().format("%10.3f", center[i]).toString())
-						+ "";
-			} else {
-				s1 += (new Formatter().format("%10.3f", center[i]).toString())
-						+ ",";
-			}
-		}
-		return s1 += "]";
-	}
-
 	private String printLS() {
 		String s1 = new String(" \nLS=[");
 		double[] LS = getLS();
@@ -1017,39 +990,6 @@ public class MicroCluster implements Comparable<MicroCluster>, Serializable {
 	// For test purposes and to illustrate how relatively simple it is to write
 	// and read a cluster to and from Cassandra.
 	public static void main(String[] args) throws Exception {
-
-		// Create some byte arrays that will mimic DataRecords
-		double[] d1 = new double[5];
-		d1[0] = 0;
-		d1[1] = 0;
-		d1[2] = 0;
-		// d1[3] = 1;
-		// d1[4] = 1;
-		double[] d2 = new double[5];
-		d2[0] = 0;
-		d2[1] = 0;
-		d2[2] = 5;
-		// d2[3] = 1;
-		// d2[4] = 120;
-		double[] d3 = new double[5];
-		d3[0] = 0;
-		d3[1] = 0;
-		d3[2] = 10;
-		// d3[3] = 1;
-		// d3[4] = 1;
-		double[] d4 = new double[5];
-		d4[0] = 2;
-		d4[1] = 1;
-		// d4[2] = 0;
-		// d4[3] = 1;
-		// d3[4] = 8;
-
-		// Create a cluster from d1, then have it absorb the others
-		MicroCluster c1 = new MicroCluster(new DataRecord(d1));
-		MicroCluster c2 = new MicroCluster(new DataRecord(d2));
-		MicroCluster c3 = new MicroCluster(c1);
-		c3.add(c2);
-		System.out.println("isSuper() returns " + c3.isSuper());
 
 	}
 }

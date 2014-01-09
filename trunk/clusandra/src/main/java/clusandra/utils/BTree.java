@@ -43,9 +43,9 @@ import static clusandra.utils.DateUtils.getClusandraDate;
  * inserted as a new microcluster.
  * 
  * Each non-Leaf node in the tree represents a macrocluster (subtree or segment
- * of the dendogram) and each leaf node is a collection of actual microclusters
- * within a macrocluster. microclusters are removed from the tree when they
- * become temporally sparse.
+ * of the dendogram) rooted at that non-Leaf node. Each Leaf node contains a
+ * collection of actual microclusters within a macrocluster. Microclusters are
+ * removed from the tree when they become temporally sparse.
  * 
  * When a microcluster absorbs another microcluster, the owning macrocluster's
  * statistics are updated. The macroclusters are also updated whenever a
@@ -67,16 +67,17 @@ import static clusandra.utils.DateUtils.getClusandraDate;
  * 
  * Any time a microcluster is updated, it will be written out to the DB. It is
  * removed from the tree when it becomes sparse. Sparseness or its temporal
- * density is controlled by a temporal decay factor (lambda).
+ * temporalDensity is controlled by a temporal decay factor (lambda).
  * 
- * The density portion of this work is based, in part, on the following paper.
+ * The temporalDensity portion of this work is based, in part, on the following
+ * paper.
  * 
  * Citation: Yixin Chen, Li Tu: Density-Based Clustering for Real-Time Stream
  * Data. KDD '07
  * 
- * The above paper describes an approach for managing the temporal density of
- * microclusters without having to visit a microcluster each and every time
- * period; as described in:
+ * The above paper describes an approach for managing the temporal
+ * temporalDensity of microclusters without having to visit a microcluster each
+ * and every time period; as described in:
  * 
  * Citation: Feng Cao, Martin Ester, Weining Qian, Aoying Zhou: Density-Based
  * Clustering over an Evolving Data Stream with Noise. SDM 2006
@@ -113,10 +114,12 @@ public class BTree implements Runnable {
 	// becomes temporally irrelevant. The lower the value for lambda, the quick
 	// a microcluster will become irrelevant.
 	private double lambda = 0.5d;
-	// the density, as a factor of maximum density, that a cluster is considered
+	// the temporalDensity, as a factor of maximum temporalDensity, that a
+	// cluster is considered
 	// irrelevant. So if the sparse factor is set to 0.25, then the microcluster
-	// will become temporally irrelevant if its density falls below 25% of its
-	// maximum density.
+	// will become temporally irrelevant if its temporalDensity falls below 25%
+	// of its
+	// maximum temporalDensity.
 	private double sparseFactor = 0.25d;
 
 	// the tree's root Node
@@ -269,9 +272,10 @@ public class BTree implements Runnable {
 
 	/**
 	 * Set the factor that determines if a microcluster is temporally sparse or
-	 * not; it is a percentage of its maximum density. For example, suppose the
-	 * factor is set to 0.3, then if the microcluster's density falls below 30%
-	 * of its maximum density, it is considered sparse.
+	 * not; it is a percentage of its maximum temporalDensity. For example,
+	 * suppose the factor is set to 0.3, then if the microcluster's
+	 * temporalDensity falls below 30% of its maximum temporalDensity, it is
+	 * considered sparse.
 	 * 
 	 * @param sf
 	 *            a value that must be greater than 0.0 and less than 1.0
@@ -303,7 +307,7 @@ public class BTree implements Runnable {
 
 	/**
 	 * 
-	 * @return The maximum density, which is 1/(1-lambda).
+	 * @return The maximum temporalDensity, which is 1/(1-lambda).
 	 */
 	private double getMaximumDensity() {
 		return (1.0d / (1.0d - getLambda()));
@@ -397,7 +401,7 @@ public class BTree implements Runnable {
 			double minDist = Double.MAX_VALUE;
 			for (Node child : leaf.getChildren()) {
 				Entry childEntry = (Entry) child;
-				if (childEntry.isRelevant(cluster.getLST() / cluster.getN())) {
+				if (childEntry.isRelevant(cluster.getCT())) {
 					double dist = cluster.getDistance(child.center);
 					if (dist < minDist) {
 						entry = childEntry;
@@ -412,13 +416,15 @@ public class BTree implements Runnable {
 
 			if (entry != null) {
 
+				LOG.debug("insert: leaf node's chosen microcluster has this many points "
+						+ entry.cluster.getN());
+
 				// note: if a cluster has only one point, then its either an
-				// outlier
-				// or an orphan
+				// outlier or an orphan
 
 				// if both the cluster being inserted and the one found for it
 				// in the tree are both outliers or orphans, then simply
-				// insert the cluster
+				// insert the cluster; do not merge it with any other cluster
 				if (entry.cluster.getN() == 1 && cluster.getN() == 1) {
 					LOG.debug("insert: both cluster being inserted and one "
 							+ "found for it are outliers/orphans");
@@ -444,9 +450,9 @@ public class BTree implements Runnable {
 				}
 
 				// the cluster being inserted has more than one point, so it is
-				// not an orphan or outlier; however, the one found for it in
-				// the tree is an outlier or orphan. so just do the opposite of
-				// above
+				// neither an orphan nor outlier; however, the one found for it
+				// in the tree is an outlier or orphan. so just do the opposite
+				// of above
 				else if (entry.cluster.getN() == 1) {
 					double radius = cluster.getRadius() * 2;
 					LOG.debug("insert: procesing outlier or orphan, "
@@ -469,6 +475,8 @@ public class BTree implements Runnable {
 					// YOU NOW HAVE TO WRITE THE ENTRY'S CLUSTER OUT TO
 					// CASSANDRA
 					return;
+				} else {
+					LOG.debug("insert: two microclusters do not spatially overlap");
 				}
 			}
 
@@ -967,10 +975,11 @@ public class BTree implements Runnable {
 	 * 
 	 */
 	private class Entry extends Node {
-		MicroCluster cluster;
-		// must start off with a max density
-		double density = getMaximumDensity();
 
+		// the cluster that this Entry encapsulates
+		MicroCluster cluster;
+
+		// Create an Entry node. Note that it is neither a Leaf nor a Node
 		Entry(MicroCluster cluster) {
 			super(cluster.getLS().length, false);
 			this.cluster = cluster;
@@ -985,28 +994,25 @@ public class BTree implements Runnable {
 			return cluster;
 		}
 
-		double getDensity() {
-			return density;
-		}
-
+		
 		/**
-		 * Have the encapsulated MicroCluster absorb the given cluster.
+		 * Have the encapsulated MicroCluster absorb the given cluster. This is
+		 * done when the two clusters spatially overlap one another AND are
+		 * temporally relevant to one another.
 		 * 
 		 * Note that chooseLeaf() will have added the given target cluster's
-		 * statistics to all the parent nodes!
+		 * statistics to all the parent nodes (i.e., macroclusters). The
+		 * chooseLeaf() method is always called prior to inserting a new
+		 * microcluster into the tree.
 		 */
 		void absorb(MicroCluster target) {
-			// before absorbing the given cluster, set the new density based on
-			// the creation time of the given cluster
-			// ??
-			density = getTemporalDensity(target.getCT());
 			cluster.merge(target);
 			clearCenter();
 			addCenter(cluster.getN(), cluster.getLS());
 		}
 
 		/**
-		 * Removes this Entry node from the BTree.
+		 * Removes this Entry node, and its microcluster, from the BTree.
 		 * 
 		 */
 		void remove() {
@@ -1018,13 +1024,22 @@ public class BTree implements Runnable {
 			}
 		}
 
+		/**
+		 * 
+		 * @param time
+		 * @return true if the given time is relevant to this Entry's cluster
+		 */
 		boolean isRelevant(double time) {
-			LOG.trace("isRelevant: entered with this time = "
-					+ getClusandraDate((long) time));
+			LOG.trace("isRelevant: entered");
+			// return true if the time falls within the cluster's lifespan
+			if (time <= cluster.getLAT() && time >= cluster.getCT()) {
+				LOG.trace("isRelevant: leaving, time falls within cluster "
+						+ "lifespan");
+				return true;
+			}
 			double td = getTemporalDensity(time);
-			LOG.trace("isRelevant: calculated density  = " + td);
 			double ratio = (td - 1.0d) / (getMaximumDensity() - 1.0d);
-			LOG.trace("isRelevant: ratio  = " + ratio);
+			LOG.trace("isRelevant: leaving, ratio  = " + ratio);
 			return ratio >= getSparseFactor();
 		}
 
@@ -1033,27 +1048,47 @@ public class BTree implements Runnable {
 		}
 
 		/**
-		 * Based on the cluster average timestamp (ms since epoc), return the
-		 * temporal density of this cluster relative to the given time.
+		 * Based on this cluster's last absorption time (i.e., the time that the
+		 * cluster absorbed the last data point), return the temporalDensity of
+		 * this cluster relative to the given time.
 		 * 
-		 * @param entry
-		 * @param time
-		 *            If time is set to 0, then the current time is used.
+		 * @param tn
+		 *            the given time
+		 * 
 		 * @return
 		 */
-		private double getTemporalDensity(double time) {
-			if (time == 0.0d) {
-				time = System.currentTimeMillis();
-			} else if (time <= getCluster().getLAT()) {
-				return getDensity();
+		private double getTemporalDensity(double tn) {
+
+			// set tl to the cluster's last absorption time
+			double tl = getCluster().getLAT();
+			// set tc to the cluster's creation time
+			double tc = getCluster().getCT();
+
+			if (tn >= tc && tn <= tl) {
+				LOG.trace("getTemporalDensity: new time is within cluster's "
+						+ "lifespan");
+				return getMaximumDensity();
+			} else if (tn < tc) {
+				LOG.trace("getTemporalDensity: new time is less than "
+						+ "creation time");
+				tl = tn;
+				tn = tc;
+			} else if (tn == 0.0d) {
+				LOG.trace("getTemporalDensity: entered with zero time");
+				tn = System.currentTimeMillis();
 			}
-			// transform the times from milliseconds to seconds
-			time = time / 1000.0d;
-			double avgT = (getCluster().getLST() / getCluster().getN()) / 1000.0d;
 
-			LOG.trace("getTemporalDensity: delta = " + (time - avgT));
+			LOG.trace("getTemporalDensity: tn / tl  = "
+					+ getClusandraDate((long) tn) + " / "
+					+ getClusandraDate((long) tl));
 
-			double d1 = (Math.pow(getLambda(), Math.round(time - avgT)) * getDensity()) + 1.0d;
+			// get the delta between the two times
+			double delta = (tn - tl) / 1000.0d;
+
+			LOG.trace("getTemporalDensity: delta = " + delta);
+
+			double d1 = Math.pow(getLambda(), delta) * getMaximumDensity()
+					+ 1.0d;
 
 			LOG.trace("getTemporalDensity: d1 = " + d1);
 

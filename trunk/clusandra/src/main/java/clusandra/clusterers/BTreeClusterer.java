@@ -68,10 +68,10 @@ public class BTreeClusterer extends AbstractProcessor {
 	// removal from the tree.
 	private double lambda = 0.5d;
 
-	// the density, as a factor of maximum density, that a microcluster is
+	// the temporalDensity, as a factor of maximum temporalDensity, that a microcluster is
 	// considered irrelevant. So if the factor is set to 0.25, then the
-	// microcluster becomes temporally irrelevant if its density falls below 25%
-	// of its maximum density.
+	// microcluster becomes temporally irrelevant if its temporalDensity falls below 25%
+	// of its maximum temporalDensity.
 	private double sparseFactor = 0.25d;
 
 	// the maximum number of entries (children) that can occupy a tree node.

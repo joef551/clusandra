@@ -13,13 +13,13 @@ http://www.springframework.org/schema/beans/spring-beans-3.0.xsd">
 	<bean id="fileAgent" class="clusandra.core.QueueAgent">
 		<property name="jmsWriteTemplate" ref="jmsTemplate" />
 		<property name="jmsWriteDestination" value="fileQueue" />
-		<property name="sendSize" value="2000" />
+		<property name="sendSize" value="1000" />
 		<property name="processor" ref="fileReader" />
 	</bean>
 
 	<bean id="fileReader" class="clusandra.stream.FileReader">
 		<property name="queueAgent" ref="fileAgent" />
-		<property name="fileName" value="/Users/jfernandez/datasets/dim/dim2.txt" />
+		<property name="fileName" value="/Users/jfernandez/datasets/dim/dim4.txt" />
 	</bean>
 
 	<!-- The connection factory for the JMS provider -->

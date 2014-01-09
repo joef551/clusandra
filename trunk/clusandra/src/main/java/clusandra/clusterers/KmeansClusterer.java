@@ -66,12 +66,12 @@ import clusandra.utils.StatUtils;
  * while the single instance of the BTreeClusterer acts as a reducer of sorts.
  * The BTreeClusterer persists micro-clusters to the Cassandra DB.
  * 
- * The density portion of this work is based, in part, on the following paper.
+ * The temporalDensity portion of this work is based, in part, on the following paper.
  * 
  * Citation: Yixin Chen, Li Tu: Density-Based Clustering for Real-Time Stream
  * Data. KDD '07
  * 
- * The above paper describes an approach for managing the temporal density of
+ * The above paper describes an approach for managing the temporal temporalDensity of
  * microclusters or data points without having to visit a microcluster each and
  * every time period; as described in:
  * 
@@ -110,10 +110,10 @@ public class KmeansClusterer extends AbstractProcessor {
 	private double lambda = 0.5d;
 
 	/*
-	 * the density, as a factor of maximum density, that a set of DataRecords is
+	 * the temporalDensity, as a factor of maximum temporalDensity, that a set of DataRecords is
 	 * considered irrelevant. So if the factor is set to 0.25, then the set
-	 * becomes temporally irrelevant if its density falls below 25% of its
-	 * maximum density.
+	 * becomes temporally irrelevant if its temporalDensity falls below 25% of its
+	 * maximum temporalDensity.
 	 */
 	private double sparseFactor = 0.25d;
 
@@ -127,7 +127,7 @@ public class KmeansClusterer extends AbstractProcessor {
 	// the drift tolerance for kmeans
 	private double driftTolerance = DRIFT_TOLERANCE;
 
-	// used for temporal density calculation
+	// used for temporal temporalDensity calculation
 	private double currentDensity;
 
 	// the choke is used in the iterative reduction phase; the selected value,
@@ -266,7 +266,7 @@ public class KmeansClusterer extends AbstractProcessor {
 
 	/**
 	 * 
-	 * @return The maximum density, which is 1/(1-lambda).
+	 * @return The maximum temporalDensity, which is 1/(1-lambda).
 	 */
 	private double getMaximumDensity() {
 		return (1.0d / (1.0d - getLambda()));
@@ -348,25 +348,35 @@ public class KmeansClusterer extends AbstractProcessor {
 		// sort the list of points in ascending timestamp order
 		Collections.sort(dataPoints);
 
-		// reset the current temporal density to the maximum density
+		// reset the current temporal temporalDensity to the maximum temporalDensity
 		resetCurrentDensity();
 
-		// cluster the given points into groups where all points in a group
-		// are temporally relevant to one another; spatial clustering is next
+		/*
+		 * cluster the given points into groups where all points in a group are
+		 * temporally relevant to one another; spatial clustering is next
+		 * 
+		 * The temporalDensity of the group is calculated as follows:
+		 * 
+		 * D(g,tn) = (lambda^tn-tl) * D(g,tl) + 1;
+		 * 
+		 * Where D(g,tn) is the denisty with the new data point and D(g,tl) is
+		 * the denisty with the last added data point. tn and tl are the
+		 * timestamps of the new and last data points, respectively.
+		 */
 		for (ListIterator<DataRecord> li = dataPoints.listIterator(); li
 				.hasNext();) {
 			DataRecord point = li.next();
 			if (!pointsToCluster.isEmpty()) {
 				// grab the time stamp of the last record in the current
-				// grouping and run a density check between that time
+				// grouping and run a temporalDensity check between that time
 				// and the new record's time.
 				double density = 0.0d;
-				// the density algorithm is based on seconds, so convert from
+				// the temporalDensity algorithm is based on seconds, so convert from
 				// ms to seconds
 				double lastTime = pointsToCluster.get(
-						pointsToCluster.size() - 1).getTimestamp() / 1000;
-				double newTime = point.getTimestamp() / 1000;
-				double delta = Math.round((newTime / 1000) - (lastTime / 1000));
+						pointsToCluster.size() - 1).getTimestamp();
+				double newTime = point.getTimestamp();
+				double delta = (newTime - lastTime) / 1000;
 				if (delta <= 0.0d) {
 					density = getCurrentDensity();
 				} else {
@@ -374,7 +384,8 @@ public class KmeansClusterer extends AbstractProcessor {
 							* getCurrentDensity() + 1.0d;
 				}
 				// if this new record is temporally relevant with the group,
-				// save the density as the current density
+				// add the new data point and save the temporalDensity as the current
+				// temporalDensity
 				if (((density - 1.0d) / getDensityRange()) >= getSparseFactor()) {
 					setCurrentDensity(density);
 				} else {
@@ -486,9 +497,9 @@ public class KmeansClusterer extends AbstractProcessor {
 		/*
 		 * if the final choke is less than 0, then this temporal grouping of
 		 * data points is not clusterable. the grouping represents stragglers
-		 * that pertain to some other main grouping. if this is the case, pass
-		 * each data point as a microcluster onto the btree clusterer (i.e.,
-		 * reducer).
+		 * that pertain to some other main grouping or all or some subset can be
+		 * outliers. if this is the case, pass each data point as a microcluster
+		 * onto the btree clusterer (i.e., reducer).
 		 */
 		if (tmpChoke <= 0) {
 			for (DataRecord dataPoint : dataPoints) {
@@ -496,10 +507,8 @@ public class KmeansClusterer extends AbstractProcessor {
 				// create microcluster
 				MicroCluster mc = new MicroCluster(
 						dataPoint.getLocation().length);
-				// have the "creation time" of the micro cluster be the timestamp
-				// of the data point
-				mc.setCT(dataPoint.getTimestamp());
-				// now have the microcluster absorb the data point
+				// now have the microcluster absorb the data point, and
+				// enqueue the microcluster
 				mc.absorb(dataPoint);
 				getQueueAgent().sendMessage(mc);
 			}
@@ -595,10 +604,7 @@ public class KmeansClusterer extends AbstractProcessor {
 		LOG.trace("clusterDataPoints: Final cluster standard deviation = "
 				+ getStdDevOfClusters(clusters));
 
-		// if (_test)
-		// return;
-
-		// lastly, transform the final cluster set into a set of micro-clusters
+		// lastly, transform the final cluster set into a set of microclusters
 		// and enqueue the microclusters for the btree clusterer
 		for (KmeansCluster cluster : clusters) {
 			// first sort the list of the cluster's data records in ascending
@@ -606,23 +612,19 @@ public class KmeansClusterer extends AbstractProcessor {
 			Collections.sort(cluster.getPoints());
 			// create microcluster
 			MicroCluster mc = new MicroCluster(cluster.getLocation().length);
-			// have the "creation time" of the micro cluster be the timestamp of
-			// the oldest point in the cluster
-			mc.setCT(cluster.getPoints().get(0).getTimestamp());
-			// now have the microcluster absorb all of this cluster's data
-			// points
+			// now have the microcluster absorb all of this kmeans cluster's
+			// data points; the first (oldest) data point will be the
+			// microcluster's creation time
 			for (DataRecord point : cluster.getPoints()) {
 				point.restoreAttValues();
 				mc.absorb(point);
 			}
 			getQueueAgent().sendMessage(mc);
-			cluster.reset();
 		}
 		// send out any stragglers
 		getQueueAgent().flush();
 
 		LOG.debug("clusterDataRecords: exit");
-
 	}
 
 	/**
